@@ -130,14 +130,17 @@ fn main() -> std::io::Result<()> {
             if let Some('\n') = inp.chars().next_back() {
                 inp.pop();
             }
-
-            if inp.contains("/QUIT") {
-                tx.send("QUIT").expect("Error sending QUIT cmd");
-                break;
+            match inp {
+                cmd if cmd.starts_with("/QUIT") => {
+                    tx.send("QUIT").expect("Error sending QUIT cmd");
+                    break;
+                }
+                cmd => {
+                    let msg = format!("{} :{}", &conn.channel, &inp);
+                    send_cmd!("PRIVMSG", msg => stream);
+                    tx.send("OK").expect("Error sending OK cmd");
+                }
             }
-            let msg = format!("{} :{}", &conn.channel, &inp);
-            send_cmd!("PRIVMSG", msg => stream);
-            tx.send("OK").expect("Error sending OK cmd");
         }
 
         let _ = channel_thread.join();
