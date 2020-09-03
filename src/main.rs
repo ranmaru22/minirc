@@ -32,31 +32,25 @@ impl Connection {
     }
 }
 
-struct Message {
-    header: String,
-    content: String,
-}
-
-impl Message {
-    pub fn from_buffer(buf: &[u8; 512]) -> Self {
-        let as_utf8 = str::from_utf8(buf).expect("Invalid Message");
-        let split = as_utf8.split(':').collect::<Vec<_>>();
-        let (header, content) = (split[1].to_owned(), split[2].to_owned());
-        Message { header, content }
-    }
-}
-
-fn format_cmd(cmd: &str, msg: &str) -> Box<[u8]> {
-    let bytes = format!("{} {}\r\n", cmd, msg).into_bytes();
-    bytes.into_boxed_slice()
+macro_rules! send_cmd {
+    ($cmd:literal, $msg:expr => $to:expr) => {
+        let bytes = format!("{} {}\r\n", $cmd, $msg).into_bytes();
+        $to.write_all(&bytes.into_boxed_slice())?;
+    };
 }
 
 fn send_auth(conn: &Connection, stream: &mut TcpStream) -> std::io::Result<()> {
-    stream.write_all(&*format_cmd("NICK", &conn.username))?;
-    stream.write_all(&*format_cmd(
-        "USER",
-        &format!("{0} * * :{0}", &conn.username),
-    ))?;
+    let user_cmd = format!("{0} * * {0}", &conn.username);
+    send_cmd!("NICK", &conn.username => stream);
+    send_cmd!("USER", user_cmd => stream);
+    Ok(())
+}
+
+fn print_msg(message: &str) -> std::io::Result<()> {
+    let resp = message.trim().split(':').collect::<Vec<_>>();
+    let name = resp[1].split('!').collect::<Vec<_>>();
+    let text = resp.last().unwrap();
+    println!("<{}> {}", name[0], text);
     Ok(())
 }
 
@@ -70,43 +64,43 @@ fn main() -> std::io::Result<()> {
         argv[4].to_owned(),
     );
 
+    #[allow(clippy::unused_io_amount)]
     if let Ok(mut stream) = TcpStream::connect(conn.address()) {
         println!("Connected to {}", &conn.server);
-        let mut buf;
 
-        loop {
-            buf = [0; 512];
+        let joined = loop {
+            let mut buf = [0; 512];
             stream.read(&mut buf)?;
-            let message = Message::from_buffer(&buf);
+            let message = str::from_utf8(&buf).expect("Invalid Message");
+            println!("{}", &message);
 
-            println!("{}", &message.content);
+            if message.contains("PING") {
+                let resp = message.split(':').collect::<Vec<_>>().join("");
+                let pong_cmd = format!(":{}", resp);
+                send_cmd!("PONG", pong_cmd => stream);
+            }
 
-            match message {
-                Message { header, content } if header.contains("PING") => {
-                    println!("Recevied a PING");
-                    stream.write_all(&*format_cmd("PONG", &content))?;
-                    println!("Sent a PONG");
-                }
-                Message { header, content } if header.contains("MOTD") => {
-                    println!("Recevied MOTD");
-                    println!("MOTD - {}", content);
-                }
-                Message { header, content } if header.contains("PRIVMSG") => {
-                    println!(
-                        "<{}> {}",
-                        header.split_whitespace().collect::<Vec<_>>()[0],
-                        content
-                    );
-                }
-                Message { content, .. } if content.contains("No Ident response") => {
-                    println!("Sending AUTH");
-                    send_auth(&conn, &mut stream)?;
-                }
-                Message { content, .. } if content.contains("376") => {
-                    println!("Joining channel");
-                    stream.write_all(&*format_cmd("JOIN", &conn.channel))?;
-                }
-                _ => continue,
+            if message.contains("No Ident response") {
+                send_auth(&conn, &mut stream)?;
+            }
+
+            if message.contains("376") {
+                send_cmd!("JOIN", &conn.channel => stream);
+            }
+
+            if message.contains("366") {
+                break true;
+            }
+        };
+
+        while joined {
+            let mut buf = [0; 512];
+            stream.read(&mut buf)?;
+            let message = str::from_utf8(&buf).expect("Invalid Message");
+            println!("{}", &message);
+
+            if message.contains("PRIVMSG") {
+                print_msg(message)?;
             }
         }
     } else {
