@@ -1,7 +1,9 @@
 use std::env;
 use std::io::prelude::*;
-use std::net::TcpStream;
+use std::net::{Shutdown, TcpStream};
 use std::str;
+use std::sync::mpsc::{self, TryRecvError};
+use std::thread;
 
 struct Connection {
     server: String,
@@ -93,16 +95,54 @@ fn main() -> std::io::Result<()> {
             }
         };
 
-        while joined {
-            let mut buf = [0; 512];
-            stream.read(&mut buf)?;
-            let message = str::from_utf8(&buf).expect("Invalid Message");
-            println!("{}", &message);
-
-            if message.contains("PRIVMSG") {
-                print_msg(message)?;
-            }
+        if !joined {
+            println!("Channel join failed");
+            stream.shutdown(Shutdown::Both)?;
+            return Ok(());
         }
+
+        let mut stream_clone = stream.try_clone().expect("Error cloning stream");
+        let (tx, rx) = mpsc::channel();
+
+        let channel_thread = thread::spawn(move || -> std::io::Result<()> {
+            loop {
+                let mut buf = [0; 512];
+                stream_clone.read(&mut buf)?;
+                let message = str::from_utf8(&buf).expect("Invalid Message");
+                if message.contains("PRIVMSG") {
+                    print_msg(message)?;
+                }
+
+                match rx.try_recv() {
+                    Ok("QUIT") | Err(TryRecvError::Disconnected) => {
+                        break;
+                    }
+                    Ok(_) | Err(TryRecvError::Empty) => continue,
+                }
+            }
+            stream_clone.shutdown(Shutdown::Both)?;
+            Ok(())
+        });
+
+        loop {
+            let mut inp = String::new();
+            std::io::stdin().read_line(&mut inp).expect("Invalid input");
+            if let Some('\n') = inp.chars().next_back() {
+                inp.pop();
+            }
+
+            if inp.contains("/QUIT") {
+                tx.send("QUIT").expect("Error sending QUIT cmd");
+                break;
+            }
+            let msg = format!("{} :{}", &conn.channel, &inp);
+            send_cmd!("PRIVMSG", msg => stream);
+            tx.send("OK").expect("Error sending OK cmd");
+        }
+
+        let _ = channel_thread.join();
+        println!("Closing connection, bye!");
+        stream.shutdown(Shutdown::Both)?;
     } else {
         println!("Could not connect to {}", &conn.server);
     }
