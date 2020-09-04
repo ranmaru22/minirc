@@ -8,27 +8,9 @@ use std::thread;
 mod connection;
 use connection::Connection;
 
-macro_rules! send_cmd {
-    ($cmd:literal, $msg:expr => $to:expr) => {
-        let bytes = format!("{} {}\r\n", $cmd, $msg).into_bytes();
-        $to.write_all(&bytes.into_boxed_slice())?;
-    };
-}
-
-fn send_auth(conn: &Connection, stream: &mut TcpStream) -> std::io::Result<()> {
-    let user_cmd = format!("{0} * * {0}", &conn.username);
-    send_cmd!("NICK", &conn.username => stream);
-    send_cmd!("USER", user_cmd => stream);
-    Ok(())
-}
-
-fn print_msg(message: &str) -> std::io::Result<()> {
-    let resp = message.trim().split(':').collect::<Vec<_>>();
-    let name = resp[1].split('!').collect::<Vec<_>>();
-    let text = resp.last().unwrap();
-    println!("<{}> {}", name[0], text);
-    Ok(())
-}
+#[macro_use]
+mod utils;
+use utils::{print_msg, send_auth};
 
 fn main() -> std::io::Result<()> {
     let argv: Vec<String> = env::args().collect();
