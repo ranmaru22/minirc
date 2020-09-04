@@ -5,34 +5,8 @@ use std::str;
 use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
 
-struct Connection {
-    server: String,
-    port: u16,
-    channel: String,
-    username: String,
-}
-
-impl Connection {
-    pub fn new(server: String, port: u16, channel: String, username: String) -> Self {
-        Connection {
-            server,
-            port,
-            channel: Connection::parse_channel(channel),
-            username,
-        }
-    }
-
-    fn parse_channel(channel: String) -> String {
-        match channel {
-            c if c.starts_with('#') => c,
-            c => format!("#{}", c),
-        }
-    }
-
-    pub fn address(&self) -> String {
-        format!("{}:{}", self.server, self.port)
-    }
-}
+mod connection;
+use connection::Connection;
 
 macro_rules! send_cmd {
     ($cmd:literal, $msg:expr => $to:expr) => {
@@ -68,7 +42,7 @@ fn main() -> std::io::Result<()> {
 
     #[allow(clippy::unused_io_amount)]
     if let Ok(mut stream) = TcpStream::connect(conn.address()) {
-        println!("Connected to {}", &conn.server);
+        println!("Connected to {}", &conn.address());
 
         let joined = loop {
             let mut buf = [0; 512];
@@ -135,19 +109,24 @@ fn main() -> std::io::Result<()> {
                     tx.send("QUIT").expect("Error sending QUIT cmd");
                     break;
                 }
+                cmd if cmd.starts_with("/WHOIS") => {
+                    // TODO: This isn't working yet!
+                    let target = cmd.split_whitespace().last().unwrap_or_default();
+                    send_cmd!("WHOIS", target => stream);
+                }
                 cmd => {
-                    let msg = format!("{} :{}", &conn.channel, &inp);
+                    let msg = format!("{} :{}", &conn.channel, &cmd);
                     send_cmd!("PRIVMSG", msg => stream);
-                    tx.send("OK").expect("Error sending OK cmd");
                 }
             }
+            tx.send("OK").expect("Error sending OK cmd");
         }
 
         let _ = channel_thread.join();
         println!("Closing connection, bye!");
         stream.shutdown(Shutdown::Both)?;
     } else {
-        println!("Could not connect to {}", &conn.server);
+        println!("Could not connect to {}", &conn.address());
     }
     Ok(())
 }
