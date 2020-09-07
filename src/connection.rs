@@ -7,7 +7,7 @@ pub struct Connection {
 
 impl Connection {
     pub fn new(server: String, port: u16, channel: String, username: String) -> Self {
-        Connection {
+        Self {
             server,
             port,
             channel: Connection::parse_channel(channel),
