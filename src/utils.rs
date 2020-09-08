@@ -25,3 +25,10 @@ pub fn print_msg(message: &str) -> std::io::Result<()> {
     println!("<{}> {}", name[0], text);
     Ok(())
 }
+
+pub fn pong(inp: &str, stream: &mut TcpStream) -> std::io::Result<()> {
+    let resp = inp.split(':').collect::<Vec<_>>().join("");
+    let pong_cmd = format!(":{}", resp);
+    send_cmd!("PONG", pong_cmd => stream);
+    Ok(())
+}

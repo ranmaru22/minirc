@@ -1,3 +1,5 @@
+#![warn(missing_debug_implementations, rust_2018_idioms)]
+
 use std::env;
 use std::io::prelude::*;
 use std::net::{Shutdown, TcpStream};
@@ -10,7 +12,7 @@ use connection::Connection;
 
 #[macro_use]
 mod utils;
-use utils::{print_msg, send_auth};
+use utils::{pong, print_msg, send_auth};
 
 fn main() -> std::io::Result<()> {
     let argv: Vec<String> = env::args().collect();
@@ -33,9 +35,7 @@ fn main() -> std::io::Result<()> {
             println!("{}", &message);
 
             if message.contains("PING") {
-                let resp = message.split(':').collect::<Vec<_>>().join("");
-                let pong_cmd = format!(":{}", resp);
-                send_cmd!("PONG", pong_cmd => stream);
+                pong(&message, &mut stream)?;
             }
 
             if message.contains("No Ident response") {
