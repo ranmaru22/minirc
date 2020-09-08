@@ -1,4 +1,5 @@
 use std::io::prelude::*;
+use std::io::Result;
 use std::net::TcpStream;
 
 use crate::connection::Connection;
@@ -11,14 +12,14 @@ macro_rules! send_cmd {
     };
 }
 
-pub fn send_auth(conn: &Connection, stream: &mut TcpStream) -> std::io::Result<()> {
+pub fn send_auth(conn: &Connection, stream: &mut TcpStream) -> Result<()> {
     let user_cmd = format!("{0} * * {0}", &conn.username);
     send_cmd!("NICK", &conn.username => stream);
     send_cmd!("USER", user_cmd => stream);
     Ok(())
 }
 
-pub fn print_msg(message: &str) -> std::io::Result<()> {
+pub fn print_msg(message: &str) -> Result<()> {
     let resp = message.trim().split(':').collect::<Vec<_>>();
     let name = resp[1].split('!').collect::<Vec<_>>();
     let text = resp.last().unwrap();
@@ -26,7 +27,7 @@ pub fn print_msg(message: &str) -> std::io::Result<()> {
     Ok(())
 }
 
-pub fn pong(inp: &str, stream: &mut TcpStream) -> std::io::Result<()> {
+pub fn pong(inp: &str, stream: &mut TcpStream) -> Result<()> {
     let resp = inp.split(':').collect::<Vec<_>>().join("");
     let pong_cmd = format!(":{}", resp);
     send_cmd!("PONG", pong_cmd => stream);

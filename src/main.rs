@@ -6,6 +6,7 @@ const DEFAULT_PORT: &str = "6667";
 const DEFAULT_USERNAME: &str = "minirc_user";
 
 use std::io::prelude::*;
+use std::io::{stdin, Result};
 use std::net::{Shutdown, TcpStream};
 use std::str;
 use std::sync::mpsc::{self, TryRecvError};
@@ -18,9 +19,9 @@ use connection::Connection;
 
 #[macro_use]
 mod utils;
-use utils::{pong, print_msg, send_auth};
+use utils::*;
 
-fn setup() -> std::io::Result<Connection> {
+fn setup() -> Result<Connection> {
     let mut server = String::from(DEFAULT_SERVER);
     let mut port = String::from(DEFAULT_PORT);
     let mut channel = String::new();
@@ -47,7 +48,7 @@ fn setup() -> std::io::Result<Connection> {
     Ok(Connection::new(server, port, channel, uname))
 }
 
-fn main() -> std::io::Result<()> {
+fn main() -> Result<()> {
     let conn = setup()?;
 
     #[allow(clippy::unused_io_amount)]
@@ -90,7 +91,7 @@ fn main() -> std::io::Result<()> {
         let mut stream_clone = stream.try_clone().expect("Error cloning stream");
         let (tx, rx) = mpsc::channel();
 
-        let channel_thread = thread::spawn(move || -> std::io::Result<()> {
+        let channel_thread = thread::spawn(move || -> Result<()> {
             loop {
                 let mut buf = [0; 512];
                 stream_clone.read(&mut buf)?;
@@ -112,7 +113,7 @@ fn main() -> std::io::Result<()> {
 
         loop {
             let mut inp = String::new();
-            std::io::stdin().read_line(&mut inp).expect("Invalid input");
+            stdin().read_line(&mut inp).expect("Invalid input");
             if let Some('\n') = inp.chars().next_back() {
                 inp.pop();
             }
