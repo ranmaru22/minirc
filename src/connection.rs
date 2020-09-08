@@ -1,28 +1,23 @@
 pub struct Connection {
-    server: String,
-    port: u16,
-    pub channel: String,
+    pub address: String,
+    pub channel: Option<String>,
     pub username: String,
 }
 
 impl Connection {
-    pub fn new(server: String, port: u16, channel: String, username: String) -> Self {
+    pub fn new(server: String, port: String, channel: String, username: String) -> Self {
         Self {
-            server,
-            port,
+            address: format!("{}:{}", server, port),
             channel: Connection::parse_channel(channel),
             username,
         }
     }
 
-    fn parse_channel(channel: String) -> String {
+    fn parse_channel(channel: String) -> Option<String> {
         match channel {
-            c if c.starts_with('#') => c,
-            c => format!("#{}", c),
+            c if c.is_empty() => None,
+            c if c.starts_with('#') => Some(c),
+            c => Some(format!("#{}", c)),
         }
-    }
-
-    pub fn address(&self) -> String {
-        format!("{}:{}", self.server, self.port)
     }
 }

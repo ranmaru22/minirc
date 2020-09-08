@@ -1,11 +1,17 @@
 #![warn(missing_debug_implementations, rust_2018_idioms)]
 
-use std::env;
+// DEFAULT PARAMETERS
+const DEFAULT_SERVER: &str = "chat.freenode.net";
+const DEFAULT_PORT: &str = "6667";
+const DEFAULT_USERNAME: &str = "minirc_user";
+
 use std::io::prelude::*;
 use std::net::{Shutdown, TcpStream};
 use std::str;
 use std::sync::mpsc::{self, TryRecvError};
 use std::thread;
+
+use argparse::{ArgumentParser, Store};
 
 mod connection;
 use connection::Connection;
@@ -14,19 +20,39 @@ use connection::Connection;
 mod utils;
 use utils::{pong, print_msg, send_auth};
 
-fn main() -> std::io::Result<()> {
-    let argv: Vec<String> = env::args().collect();
+fn setup() -> std::io::Result<Connection> {
+    let mut server = String::from(DEFAULT_SERVER);
+    let mut port = String::from(DEFAULT_PORT);
+    let mut channel = String::new();
+    let mut uname = String::from(DEFAULT_USERNAME);
 
-    let conn = Connection::new(
-        argv[1].to_owned(),
-        argv[2].parse().expect("Invalid port number"),
-        argv[3].to_owned(),
-        argv[4].to_owned(),
-    );
+    {
+        let mut parser = ArgumentParser::new();
+        parser.set_description("Simple IRC client written in Rust.");
+        parser
+            .refer(&mut server)
+            .add_option(&["-s", "--server"], Store, "Server to connect to");
+        parser
+            .refer(&mut port)
+            .add_option(&["-p", "--port"], Store, "Port to connect to");
+        parser
+            .refer(&mut channel)
+            .add_option(&["-c", "--channel"], Store, "Channel to join");
+        parser
+            .refer(&mut uname)
+            .add_option(&["-n", "--name"], Store, "User handle to use");
+        parser.parse_args_or_exit();
+    }
+
+    Ok(Connection::new(server, port, channel, uname))
+}
+
+fn main() -> std::io::Result<()> {
+    let conn = setup()?;
 
     #[allow(clippy::unused_io_amount)]
-    if let Ok(mut stream) = TcpStream::connect(conn.address()) {
-        println!("Connected to {}", &conn.address());
+    if let Ok(mut stream) = TcpStream::connect(&conn.address) {
+        println!("Connected to {}", &conn.address);
 
         let joined = loop {
             let mut buf = [0; 512];
@@ -43,7 +69,11 @@ fn main() -> std::io::Result<()> {
             }
 
             if message.contains("376") {
-                send_cmd!("JOIN", &conn.channel => stream);
+                if let Some(channel) = &conn.channel {
+                    send_cmd!("JOIN", channel => stream);
+                } else {
+                    break true;
+                }
             }
 
             if message.contains("366") {
@@ -52,7 +82,7 @@ fn main() -> std::io::Result<()> {
         };
 
         if !joined {
-            println!("Channel join failed");
+            println!("Connection error");
             stream.shutdown(Shutdown::Both)?;
             return Ok(());
         }
@@ -97,8 +127,10 @@ fn main() -> std::io::Result<()> {
                     send_cmd!("WHOIS", target => stream);
                 }
                 cmd => {
-                    let msg = format!("{} :{}", &conn.channel, &cmd);
-                    send_cmd!("PRIVMSG", msg => stream);
+                    if let Some(channel) = &conn.channel {
+                        let msg = format!("{} :{}", channel, &cmd);
+                        send_cmd!("PRIVMSG", msg => stream);
+                    }
                 }
             }
             tx.send("OK").expect("Error sending OK cmd");
@@ -108,7 +140,7 @@ fn main() -> std::io::Result<()> {
         println!("Closing connection, bye!");
         stream.shutdown(Shutdown::Both)?;
     } else {
-        println!("Could not connect to {}", &conn.address());
+        println!("Could not connect to {}", &conn.address);
     }
     Ok(())
 }
