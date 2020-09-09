@@ -6,16 +6,17 @@ use crate::connection::Connection;
 
 #[macro_export]
 macro_rules! send_cmd {
-    ($cmd:literal, $msg:expr => $to:expr) => {
-        let bytes = format!("{} {}\r\n", $cmd, $msg).into_bytes();
+    ($cmd:expr => $to:expr) => {
+        let bytes = format!("{}\r\n", $cmd).into_bytes();
         $to.write_all(&bytes.into_boxed_slice())?;
     };
 }
 
 pub fn send_auth(conn: &Connection, stream: &mut TcpStream) -> Result<()> {
-    let user_cmd = format!("{0} * * {0}", &conn.username);
-    send_cmd!("NICK", &conn.username => stream);
-    send_cmd!("USER", user_cmd => stream);
+    let nick_cmd = format!("NICK {}", &conn.username);
+    let user_cmd = format!("USER {0} * * {0}", &conn.username);
+    send_cmd!(nick_cmd => stream);
+    send_cmd!(user_cmd => stream);
     Ok(())
 }
 
@@ -29,7 +30,7 @@ pub fn print_msg(message: &str) -> Result<()> {
 
 pub fn pong(inp: &str, stream: &mut TcpStream) -> Result<()> {
     let resp = inp.split(':').collect::<Vec<_>>().join("");
-    let pong_cmd = format!(":{}", resp);
-    send_cmd!("PONG", pong_cmd => stream);
+    let pong_cmd = format!("PONG :{}", resp);
+    send_cmd!(pong_cmd => stream);
     Ok(())
 }
