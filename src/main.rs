@@ -28,6 +28,8 @@ fn setup() -> Result<Connection> {
     let mut uname = String::from(DEFAULT_USERNAME);
 
     {
+        // arg parse block
+        // borrows go out of scope after parsing
         let mut parser = ArgumentParser::new();
         parser.set_description("Simple IRC client written in Rust.");
         parser
@@ -54,7 +56,7 @@ fn main() -> Result<()> {
     #[allow(clippy::unused_io_amount)]
     if let Ok(mut stream) = TcpStream::connect(&conn.address) {
         println!("Connected to {}", &conn.address);
-        send_cmd!("CAP LS 302" => stream);
+        // send_cmd!("CAP LS 302" => stream);
         send_auth(&conn, &mut stream)?;
         if let Some(passwd) = &conn.password {
             let passwd_cmd = format!("PASS {}", passwd);
@@ -76,15 +78,14 @@ fn main() -> Result<()> {
                 }
 
                 match rx.try_recv() {
-                    Ok("QUIT") | Err(TryRecvError::Disconnected) => {
-                        break;
-                    }
+                    Ok("QUIT") | Err(TryRecvError::Disconnected) => break,
                     Ok(_) | Err(TryRecvError::Empty) => continue,
                 }
             }
             stream_clone.shutdown(Shutdown::Both)?;
             Ok(())
         });
+        let mut active_channel: Option<String> = None;
 
         loop {
             // main loop
@@ -100,9 +101,11 @@ fn main() -> Result<()> {
                 }
                 cmd if cmd.to_ascii_uppercase().starts_with("/JOIN") => {
                     let args: Vec<_> = cmd.split("JOIN").collect();
-                    let join_cmd = format!("JOIN {}", args.get(1).unwrap_or(&""));
-                    send_cmd!(join_cmd => stream);
-                    break;
+                    if let Some(channel) = args.get(1) {
+                        let join_cmd = format!("JOIN {}", channel);
+                        send_cmd!(join_cmd => stream);
+                        active_channel = Some(channel.to_string());
+                    }
                 }
                 cmd if cmd.to_ascii_uppercase().starts_with("/WHOIS") => {
                     // TODO: This isn't working yet!
@@ -110,7 +113,12 @@ fn main() -> Result<()> {
                     let whois_cmd = format!("WHOIS {}", args.get(1).unwrap_or(&""));
                     send_cmd!(whois_cmd => stream);
                 }
-                _ => {}
+                cmd => {
+                    if let Some(ref channel) = active_channel {
+                        let privmsg = format! {"PRIVMSG {} :{}", channel, cmd};
+                        send_cmd!(privmsg => stream);
+                    }
+                }
             }
             tx.send("OK").expect("Error sending OK cmd");
         }
@@ -121,5 +129,6 @@ fn main() -> Result<()> {
     } else {
         println!("Could not connect to {}", &conn.address);
     }
+
     Ok(())
 }
