@@ -24,6 +24,7 @@ use utils::*;
 fn setup() -> Result<Connection> {
     let mut server = String::from(DEFAULT_SERVER);
     let mut port = String::from(DEFAULT_PORT);
+    let mut passwd = String::new();
     let mut uname = String::from(DEFAULT_USERNAME);
 
     {
@@ -36,12 +37,15 @@ fn setup() -> Result<Connection> {
             .refer(&mut port)
             .add_option(&["-p", "--port"], Store, "Port to connect to");
         parser
+            .refer(&mut passwd)
+            .add_option(&["-k", "--key"], Store, "Server password");
+        parser
             .refer(&mut uname)
             .add_option(&["-n", "--name"], Store, "User handle to use");
         parser.parse_args_or_exit();
     }
 
-    Ok(Connection::new(server, port, uname))
+    Ok(Connection::new(server, port, passwd, uname))
 }
 
 fn main() -> Result<()> {
@@ -50,8 +54,12 @@ fn main() -> Result<()> {
     #[allow(clippy::unused_io_amount)]
     if let Ok(mut stream) = TcpStream::connect(&conn.address) {
         println!("Connected to {}", &conn.address);
-        // send_cmd!("CAP LS 302" => stream);
+        send_cmd!("CAP LS 302" => stream);
         send_auth(&conn, &mut stream)?;
+        if let Some(passwd) = &conn.password {
+            let passwd_cmd = format!("PASS {}", passwd);
+            send_cmd!(passwd_cmd => stream);
+        }
 
         let mut stream_clone = stream.try_clone().expect("Error cloning stream");
         let (tx, rx) = mpsc::channel();
@@ -86,17 +94,17 @@ fn main() -> Result<()> {
                 inp.pop();
             }
             match inp {
-                cmd if cmd.starts_with("/QUIT") => {
+                cmd if cmd.to_ascii_uppercase().starts_with("/QUIT") => {
                     tx.send("QUIT").expect("Error sending QUIT cmd");
                     break;
                 }
-                cmd if cmd.starts_with("/JOIN") => {
+                cmd if cmd.to_ascii_uppercase().starts_with("/JOIN") => {
                     let args: Vec<_> = cmd.split("JOIN").collect();
                     let join_cmd = format!("JOIN {}", args.get(1).unwrap_or(&""));
                     send_cmd!(join_cmd => stream);
                     break;
                 }
-                cmd if cmd.starts_with("/WHOIS") => {
+                cmd if cmd.to_ascii_uppercase().starts_with("/WHOIS") => {
                     // TODO: This isn't working yet!
                     let args: Vec<_> = cmd.split("WHOIS").collect();
                     let whois_cmd = format!("WHOIS {}", args.get(1).unwrap_or(&""));
