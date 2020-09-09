@@ -3,26 +3,40 @@ use std::env;
 use std::fs;
 use std::fs::File;
 use std::io::prelude::*;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 pub struct Channel {
     id: String,
     file: File,
-    fp: String,
+    fp: PathBuf,
 }
 
 impl Channel {
     pub fn new(id: String) -> Self {
-        let path = match env::var("HOME") {
-            Ok(home) => format!("{}{}", home, CONFIG_PATH),
+        let mut path = match env::var("HOME") {
+            Ok(home) => Path::new(&home).join(CONFIG_PATH),
             Err(e) => panic!("Error reading HOME: {}", e),
         };
 
-        let fp = format!("{}/{}.txt", path, id);
-        let file = if fs::metadata(&fp).is_ok() {
-            File::open(&fp).expect("Error writing buffer file")
+        if !path.exists() {
+            Command::new("mkdir")
+                .arg("-r")
+                .arg(&path)
+                .status()
+                .expect("Error creating config dir");
+        }
+        path.set_file_name(&id);
+        path.set_extension("txt");
+
+        println!("{:?}", &path);
+        let file = if fs::metadata(&path).is_ok() {
+            File::open(&path).expect("Error writing buffer file")
         } else {
-            File::create(&fp).expect("Error opening buffer file")
+            File::create(&path).expect("Error opening buffer file")
         };
+
+        let fp = path.canonicalize().expect("Error resolving file path");
 
         Self { id, file, fp }
     }
@@ -37,6 +51,10 @@ impl Channel {
     }
 
     pub fn get_fp(&self) -> &str {
-        &self.fp
+        if let Some(fp) = self.fp.to_str() {
+            fp
+        } else {
+            ""
+        }
     }
 }

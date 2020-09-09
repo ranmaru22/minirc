@@ -14,7 +14,7 @@ macro_rules! send_cmd {
 
 pub fn send_auth(conn: &Connection, stream: &mut TcpStream) -> Result<()> {
     let nick_cmd = format!("NICK {}", &conn.username);
-    let user_cmd = format!("USER {0} * * {0}", &conn.username);
+    let user_cmd = format!("USER {0} * * :{0}", &conn.username);
     send_cmd!(nick_cmd => stream);
     send_cmd!(user_cmd => stream);
     Ok(())

@@ -5,18 +5,23 @@ const DEFAULT_SERVER: &str = "chat.freenode.net";
 const DEFAULT_PORT: &str = "6667";
 const DEFAULT_USERNAME: &str = "minirc_user";
 const COMMAND_PREFIX: char = '/';
+const CONFIG_PATH: &str = ".config/minirc/";
 
 use std::io::prelude::*;
 use std::io::{stdin, Result};
 use std::net::{Shutdown, TcpStream};
 use std::str;
 use std::sync::mpsc::{self, TryRecvError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use argparse::{ArgumentParser, Store};
 
 mod connection;
 use connection::Connection;
+
+mod channel;
+use channel::Channel;
 
 #[macro_use]
 mod utils;
@@ -64,8 +69,12 @@ fn main() -> Result<()> {
             send_cmd!(passwd_cmd => stream);
         }
 
+        let channels = Arc::new(Mutex::new(Vec::<Channel>::new()));
+        let active_channel = Arc::new(Mutex::new(0));
+
         let mut stream_clone = stream.try_clone().expect("Error cloning stream");
         let (tx, rx) = mpsc::channel();
+        let (mx_channels, mx_active) = (Arc::clone(&channels), Arc::clone(&active_channel));
         let channel_thread = thread::spawn(move || -> Result<()> {
             loop {
                 let mut buf = [0; 512];
@@ -74,19 +83,24 @@ fn main() -> Result<()> {
 
                 match message {
                     m if m.contains("PING") => pong(&message, &mut stream_clone)?,
-                    m if m.contains("PRIVMSG") => print_msg(message)?,
+                    m if m.contains("PRIVMSG") => {
+                        print_msg(message)?;
+                        let mut channels = mx_channels.lock().unwrap();
+                        let active_channel = mx_active.lock().unwrap();
+                        if let Some(channel) = channels.get_mut(*active_channel) {
+                            channel.write(&message)?;
+                        }
+                    }
                     m => println!("{}", m),
                 }
 
                 match rx.try_recv() {
                     Ok("QUIT") | Err(TryRecvError::Disconnected) => break,
-                    Ok(_) | Err(TryRecvError::Empty) => continue,
+                    Ok(_) | Err(TryRecvError::Empty) => {}
                 }
             }
             Ok(())
         });
-
-        let mut active_channel: Option<String> = None;
 
         loop {
             // main loop
@@ -108,13 +122,32 @@ fn main() -> Result<()> {
                         let join_cmd = format!("JOIN {}", args);
                         send_cmd!(join_cmd => stream);
                         // TODO: check whether join is successful
-                        active_channel = Some(args.to_string());
+                        let joined_chan = Channel::new(args.trim().to_owned());
+                        let mut channels = channels.lock().unwrap();
+                        let mut active_channel = active_channel.lock().unwrap();
+                        println!("CHAN FILE: {}", joined_chan.get_fp());
+                        channels.push(joined_chan);
+                        *active_channel = channels.len();
+                    }
+                    "c" => {
+                        if let Ok(target) = &inp[2..].parse::<usize>() {
+                            let mut active_channel = active_channel.lock().unwrap();
+                            *active_channel = *target;
+                        } else {
+                            println!("Invalid buffer");
+                        }
                     }
                     &_ => println!("Unknown command"),
                 }
-            } else if let Some(ref channel) = active_channel {
-                let privmsg = format! {"PRIVMSG {} :{}", channel, inp};
-                send_cmd!(privmsg => stream);
+            } else {
+                let mut channels = channels.lock().unwrap();
+                let active_channel = active_channel.lock().unwrap();
+                if let Some(channel) = channels.get_mut(*active_channel) {
+                    let privmsg = format!("PRIVMSG {} :{}", channel.get_id(), &inp);
+                    send_cmd!(privmsg => stream);
+                    let log = format!("<{}> {}", &conn.username, &inp);
+                    channel.write(&log)?;
+                }
             }
 
             tx.send("OK").expect("Error sending OK cmd");
