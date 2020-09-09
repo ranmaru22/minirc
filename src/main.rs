@@ -4,6 +4,7 @@
 const DEFAULT_SERVER: &str = "chat.freenode.net";
 const DEFAULT_PORT: &str = "6667";
 const DEFAULT_USERNAME: &str = "minirc_user";
+const COMMAND_PREFIX: char = '/';
 
 use std::io::prelude::*;
 use std::io::{stdin, Result};
@@ -94,32 +95,28 @@ fn main() -> Result<()> {
             if let Some('\n') = inp.chars().next_back() {
                 inp.pop();
             }
-            match inp {
-                cmd if cmd.to_ascii_uppercase().starts_with("/QUIT") => {
-                    tx.send("QUIT").expect("Error sending QUIT cmd");
-                    break;
-                }
-                cmd if cmd.to_ascii_uppercase().starts_with("/JOIN") => {
-                    let args: Vec<_> = cmd.split("JOIN").collect();
-                    if let Some(channel) = args.get(1) {
-                        let join_cmd = format!("JOIN {}", channel);
+
+            if let Some(COMMAND_PREFIX) = inp.chars().next() {
+                let cmd = &inp[1..2];
+                let args = &inp[2..];
+                match cmd {
+                    "q" => {
+                        tx.send("QUIT").expect("Error sending QUIT cmd");
+                        break;
+                    }
+                    "j" => {
+                        let join_cmd = format!("JOIN {}", args);
                         send_cmd!(join_cmd => stream);
-                        active_channel = Some(channel.to_string());
+                        // TODO: check whether join is successful
+                        active_channel = Some(args.to_string());
                     }
+                    &_ => println!("Unknown command"),
                 }
-                cmd if cmd.to_ascii_uppercase().starts_with("/WHOIS") => {
-                    // TODO: This isn't working yet!
-                    let args: Vec<_> = cmd.split("WHOIS").collect();
-                    let whois_cmd = format!("WHOIS {}", args.get(1).unwrap_or(&""));
-                    send_cmd!(whois_cmd => stream);
-                }
-                cmd => {
-                    if let Some(ref channel) = active_channel {
-                        let privmsg = format! {"PRIVMSG {} :{}", channel, cmd};
-                        send_cmd!(privmsg => stream);
-                    }
-                }
+            } else if let Some(ref channel) = active_channel {
+                let privmsg = format! {"PRIVMSG {} :{}", channel, inp};
+                send_cmd!(privmsg => stream);
             }
+
             tx.send("OK").expect("Error sending OK cmd");
         }
 
