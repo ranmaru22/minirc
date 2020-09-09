@@ -83,9 +83,9 @@ fn main() -> Result<()> {
                     Ok(_) | Err(TryRecvError::Empty) => continue,
                 }
             }
-            stream_clone.shutdown(Shutdown::Both)?;
             Ok(())
         });
+
         let mut active_channel: Option<String> = None;
 
         loop {
@@ -98,13 +98,13 @@ fn main() -> Result<()> {
 
             if let Some(COMMAND_PREFIX) = inp.chars().next() {
                 let cmd = &inp[1..2];
-                let args = &inp[2..];
                 match cmd {
                     "q" => {
                         tx.send("QUIT").expect("Error sending QUIT cmd");
                         break;
                     }
                     "j" => {
+                        let args = &inp[2..];
                         let join_cmd = format!("JOIN {}", args);
                         send_cmd!(join_cmd => stream);
                         // TODO: check whether join is successful
@@ -120,9 +120,15 @@ fn main() -> Result<()> {
             tx.send("OK").expect("Error sending OK cmd");
         }
 
-        let _ = channel_thread.join();
-        println!("Closing connection, bye!");
-        stream.shutdown(Shutdown::Both)?;
+        match channel_thread.join().unwrap() {
+            Ok(_) => {
+                println!("Closing connection, bye!");
+                stream.shutdown(Shutdown::Both)?;
+            }
+            Err(e) => {
+                eprintln!("Error shutting down: {}", e);
+            }
+        }
     } else {
         println!("Could not connect to {}", &conn.address);
     }
