@@ -50,6 +50,7 @@ fn main() -> Result<()> {
     #[allow(clippy::unused_io_amount)]
     if let Ok(mut stream) = TcpStream::connect(&conn.address) {
         println!("Connected to {}", &conn.address);
+        // send_cmd!("CAP LS 302" => stream);
         send_auth(&conn, &mut stream)?;
 
         let mut stream_clone = stream.try_clone().expect("Error cloning stream");
@@ -89,10 +90,17 @@ fn main() -> Result<()> {
                     tx.send("QUIT").expect("Error sending QUIT cmd");
                     break;
                 }
+                cmd if cmd.starts_with("/JOIN") => {
+                    let args: Vec<_> = cmd.split("JOIN").collect();
+                    let join_cmd = format!("JOIN {}", args.get(1).unwrap_or(&""));
+                    send_cmd!(join_cmd => stream);
+                    break;
+                }
                 cmd if cmd.starts_with("/WHOIS") => {
                     // TODO: This isn't working yet!
-                    let target = cmd.split_whitespace().last().unwrap_or_default();
-                    send_cmd!("WHOIS", target => stream);
+                    let args: Vec<_> = cmd.split("WHOIS").collect();
+                    let whois_cmd = format!("WHOIS {}", args.get(1).unwrap_or(&""));
+                    send_cmd!(whois_cmd => stream);
                 }
                 _ => {}
             }
