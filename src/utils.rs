@@ -21,8 +21,8 @@ pub fn send_auth(conn: &Connection, stream: &mut TcpStream) -> Result<()> {
 }
 
 pub fn print_msg(message: &str) -> Result<()> {
-    let resp = message.trim().split(':').collect::<Vec<_>>();
-    let name = resp[1].split('!').collect::<Vec<_>>();
+    let resp: Vec<_> = message.trim().split(':').collect();
+    let name: Vec<_> = resp[1].split('!').collect();
     let text = resp.last().unwrap();
     println!("<{}> {}", name[0], text);
     Ok(())
