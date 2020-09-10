@@ -45,11 +45,7 @@ impl Channel {
         Ok(())
     }
 
-    pub fn get_fp(&self) -> &str {
-        if let Some(fp) = self.fp.to_str() {
-            fp
-        } else {
-            ""
-        }
+    pub fn get_fp(&self) -> Option<&str> {
+        self.fp.to_str()
     }
 }
