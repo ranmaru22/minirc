@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub struct Connection {
     pub address: String,
     pub password: Option<String>,

@@ -4,6 +4,7 @@ use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
 
+#[derive(Debug)]
 pub struct Channel {
     id: String,
     file: File,
@@ -18,14 +19,12 @@ impl Channel {
         };
 
         if !path.exists() {
-            println!("Creating dir: {:?}", &path);
             create_dir_all(&path).expect("Error creating logs directory");
         }
 
         let mut fp = path.join(&id);
         fp.set_extension("txt");
 
-        println!("{:?}", &fp);
         let file = if fp.exists() {
             File::open(&fp).expect("Error opening buffer file")
         } else {
