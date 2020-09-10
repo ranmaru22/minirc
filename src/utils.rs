@@ -14,6 +14,14 @@ mod tests {
         let expected = String::from("<Ranmaru> Foo! :D");
         assert_eq!(parse_msg(&test_str), Some(expected));
     }
+
+    #[test]
+    pub fn parsing_notice_works() {
+        let test_str =
+            String::from(":niven.freenode.net NOTICE * :*** Looking up your hostname...");
+        let expected = String::from("NOTICE *** Looking up your hostname...");
+        assert_eq!(parse_msg(&test_str), Some(expected));
+    }
 }
 
 #[macro_export]
@@ -42,17 +50,26 @@ pub fn print_msg(message: &str) -> Result<()> {
 pub fn parse_msg(message: &str) -> Option<String> {
     match message {
         msg if msg.contains("PRIVMSG") => parse_privmsg(&msg),
+        msg if msg.contains("NOTICE") => parse_notice(&msg),
         &_ => None,
     }
 }
 
 fn parse_privmsg(message: &str) -> Option<String> {
-    let split: Vec<_> = message.trim().split("PRIVMSG").collect();
-    if let Some((left, right)) = split.split_first() {
-        let name = left.split('!').collect::<Vec<_>>().first().unwrap()[1..].to_owned();
-        let mut msg = right[0].split(':').collect::<Vec<_>>();
-        let _ = msg.remove(0);
-        return Some(format!("<{}> {}", name, msg.join(":")));
+    let mut split = message.trim().splitn(2, "PRIVMSG");
+    if let (Some(name), Some(msg)) = (split.next(), split.next()) {
+        let name = &name.split('!').next().unwrap()[1..];
+        let msg = msg.splitn(2, ':').last().unwrap();
+        return Some(format!("<{}> {}", name, msg));
+    }
+    None
+}
+
+fn parse_notice(message: &str) -> Option<String> {
+    let split = message.trim().splitn(2, "NOTICE");
+    if let Some(notice) = split.last() {
+        let notice = notice.splitn(2, ':').last().unwrap();
+        return Some(format!("NOTICE {}", notice));
     }
     None
 }
