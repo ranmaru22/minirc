@@ -1,10 +1,8 @@
 use crate::CONFIG_PATH;
 use std::env;
-use std::fs;
-use std::fs::File;
+use std::fs::{create_dir_all, File};
 use std::io::prelude::*;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 pub struct Channel {
     id: String,
@@ -14,30 +12,27 @@ pub struct Channel {
 
 impl Channel {
     pub fn new(id: String) -> Self {
-        let mut path = match env::var("HOME") {
-            Ok(home) => Path::new(&home).join(CONFIG_PATH),
+        let path = match env::var("HOME") {
+            Ok(home) => Path::new(&home).join(CONFIG_PATH).join("logs"),
             Err(e) => panic!("Error reading HOME: {}", e),
         };
 
         if !path.exists() {
-            Command::new("mkdir")
-                .arg("-r")
-                .arg(&path)
-                .status()
-                .expect("Error creating config dir");
+            println!("Creating dir: {:?}", &path);
+            create_dir_all(&path).expect("Error creating logs directory");
         }
-        path.set_file_name(&id);
-        path.set_extension("txt");
 
-        println!("{:?}", &path);
-        let file = if fs::metadata(&path).is_ok() {
-            File::open(&path).expect("Error writing buffer file")
+        let mut fp = path.join(&id);
+        fp.set_extension("txt");
+
+        println!("{:?}", &fp);
+        let file = if fp.exists() {
+            File::open(&fp).expect("Error opening buffer file")
         } else {
-            File::create(&path).expect("Error opening buffer file")
+            File::create(&fp).expect("Error writing buffer file")
         };
 
-        let fp = path.canonicalize().expect("Error resolving file path");
-
+        let fp = fp.canonicalize().expect("Error resolving file path");
         Self { id, file, fp }
     }
 
