@@ -75,8 +75,9 @@ fn parse_notice(message: &str) -> Option<String> {
 }
 
 pub fn pong(inp: &str, stream: &mut TcpStream) -> Result<()> {
-    let resp = inp.split(':').collect::<Vec<_>>().join("");
-    let pong_cmd = format!("PONG :{}", resp);
-    send_cmd!(pong_cmd => stream);
+    if let Some(resp) = inp.splitn(2, ':').last() {
+        let pong_cmd = format!("PONG :{}", &resp);
+        send_cmd!(pong_cmd => stream);
+    }
     Ok(())
 }
