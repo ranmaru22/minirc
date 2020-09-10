@@ -8,7 +8,7 @@ const COMMAND_PREFIX: char = '/';
 const CONFIG_PATH: &str = ".config/minirc/";
 
 use std::io::prelude::*;
-use std::io::{stdin, Result};
+use std::io::{stdin, BufReader, Result};
 use std::net::{Shutdown, TcpStream};
 use std::str;
 use std::sync::mpsc::{self, TryRecvError};
@@ -77,21 +77,21 @@ fn main() -> Result<()> {
         let (mx_channels, mx_active) = (Arc::clone(&channels), Arc::clone(&active_channel));
         let channel_thread = thread::spawn(move || -> Result<()> {
             loop {
-                let mut buf = [0; 512];
-                stream_clone.read(&mut buf)?;
-                let message = str::from_utf8(&buf).expect("Invalid Message");
+                let mut reader = BufReader::new(&stream_clone);
+                let mut message = String::new();
+                reader.read_line(&mut message)?;
 
                 match message {
-                    m if m.contains("PING") => pong(&message, &mut stream_clone)?,
+                    m if m.contains("PING") => pong(&m, &mut stream_clone)?,
                     m if m.contains("PRIVMSG") => {
-                        print_msg(message)?;
+                        print_msg(&m)?;
                         let mut channels = mx_channels.lock().unwrap();
                         let active_channel = mx_active.lock().unwrap();
                         if let Some(channel) = channels.get_mut(*active_channel) {
-                            channel.write(&message)?;
+                            channel.write(&m)?;
                         }
                     }
-                    m => println!("{}", m),
+                    m => println!("{}", &m),
                 }
 
                 match rx.try_recv() {
