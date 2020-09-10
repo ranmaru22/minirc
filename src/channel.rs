@@ -1,13 +1,12 @@
 use crate::CONFIG_PATH;
 use std::env;
-use std::fs::{create_dir_all, File};
-use std::io::prelude::*;
+use std::fs::{create_dir_all, File, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
 pub struct Channel {
     id: String,
-    file: File,
     fp: PathBuf,
 }
 
@@ -24,15 +23,13 @@ impl Channel {
 
         let mut fp = path.join(&id);
         fp.set_extension("txt");
-
-        let file = if fp.exists() {
-            File::open(&fp).expect("Error opening buffer file")
-        } else {
-            File::create(&fp).expect("Error writing buffer file")
-        };
+        if !fp.exists() {
+            File::create(&fp).expect("Error writing buffer file");
+        }
 
         let fp = fp.canonicalize().expect("Error resolving file path");
-        Self { id, file, fp }
+
+        Self { id, fp }
     }
 
     pub fn get_id(&self) -> &str {
@@ -40,7 +37,8 @@ impl Channel {
     }
 
     pub fn write(&mut self, message: &str) -> std::io::Result<()> {
-        self.file.write(message.as_bytes())?;
+        let mut file = OpenOptions::new().write(true).append(true).open(&self.fp)?;
+        writeln!(file, "{}", message)?;
         Ok(())
     }
 }
