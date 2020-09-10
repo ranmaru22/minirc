@@ -7,13 +7,17 @@ use std::path::{Path, PathBuf};
 #[derive(Debug)]
 pub struct Channel {
     id: String,
+    server: String,
     fp: PathBuf,
 }
 
 impl Channel {
-    pub fn new(id: String) -> Self {
+    pub fn new(id: &str, server: &str) -> Self {
         let path = match env::var("HOME") {
-            Ok(home) => Path::new(&home).join(CONFIG_PATH).join("logs"),
+            Ok(home) => Path::new(&home)
+                .join(CONFIG_PATH)
+                .join("logs")
+                .join(&server),
             Err(e) => panic!("Error reading HOME: {}", e),
         };
 
@@ -28,8 +32,8 @@ impl Channel {
         }
 
         let fp = fp.canonicalize().expect("Error resolving file path");
-
-        Self { id, fp }
+        let (id, server) = (id.to_owned(), server.to_owned());
+        Self { id, server, fp }
     }
 
     pub fn get_id(&self) -> &str {
