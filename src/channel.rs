@@ -43,8 +43,4 @@ impl Channel {
         self.file.write(message.as_bytes())?;
         Ok(())
     }
-
-    pub fn get_fp(&self) -> Option<&str> {
-        self.fp.to_str()
-    }
 }
