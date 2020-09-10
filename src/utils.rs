@@ -9,7 +9,7 @@ mod tests {
     use super::*;
 
     #[test]
-    pub fn parsing_works() {
+    pub fn parsing_privmsg_works() {
         let test_str = String::from(":Ranmaru!~ranmaru@2a02:908:13b2:5380:6c18:852b:8306:ac33 PRIVMSG ##rantestfoobazinga1337 :Foo! :D");
         let expected = String::from("<Ranmaru> Foo! :D");
         assert_eq!(parse_msg(&test_str), Some(expected));
@@ -40,6 +40,13 @@ pub fn print_msg(message: &str) -> Result<()> {
 }
 
 pub fn parse_msg(message: &str) -> Option<String> {
+    match message {
+        msg if msg.contains("PRIVMSG") => parse_privmsg(&msg),
+        &_ => None,
+    }
+}
+
+fn parse_privmsg(message: &str) -> Option<String> {
     let split: Vec<_> = message.trim().split("PRIVMSG").collect();
     if let Some((left, right)) = split.split_first() {
         let name = left.split('!').collect::<Vec<_>>().first().unwrap()[1..].to_owned();
