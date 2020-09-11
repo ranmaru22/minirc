@@ -1,68 +1,28 @@
 #![warn(missing_debug_implementations, rust_2018_idioms)]
-
-// DEFAULT PARAMETERS
-const DEFAULT_SERVER: &str = "chat.freenode.net";
-const DEFAULT_PORT: &str = "6667";
-const DEFAULT_USERNAME: &str = "minirc_user";
 const COMMAND_PREFIX: char = '/';
-const CONFIG_PATH: &str = ".config/minirc/";
 
 use std::io::prelude::*;
 use std::io::{stdin, BufReader, Result};
 use std::net::{Shutdown, TcpStream};
-use std::str;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use argparse::{ArgumentParser, Store};
-
-mod connection;
-use connection::Connection;
-
-mod channel;
-use channel::Channel;
-
 #[macro_use]
 mod utils;
+mod argparse;
+mod channel;
+mod connection;
+
+use channel::Channel;
 use utils::*;
 
-fn setup() -> Result<Connection> {
-    let mut server = String::from(DEFAULT_SERVER);
-    let mut port = String::from(DEFAULT_PORT);
-    let mut passwd = String::new();
-    let mut uname = String::from(DEFAULT_USERNAME);
-
-    {
-        // arg parse block
-        // borrows go out of scope after parsing
-        let mut parser = ArgumentParser::new();
-        parser.set_description("Simple IRC client written in Rust.");
-        parser
-            .refer(&mut server)
-            .add_option(&["-s", "--server"], Store, "Server to connect to");
-        parser
-            .refer(&mut port)
-            .add_option(&["-p", "--port"], Store, "Port to connect to");
-        parser
-            .refer(&mut passwd)
-            .add_option(&["-k", "--key"], Store, "Server password");
-        parser
-            .refer(&mut uname)
-            .add_option(&["-n", "--name"], Store, "User handle to use");
-        parser.parse_args_or_exit();
-    }
-
-    Ok(Connection::new(server, port, passwd, uname))
-}
-
 fn main() -> Result<()> {
-    let conn = setup()?;
+    let conn = argparse::setup()?;
 
-    #[allow(clippy::unused_io_amount)]
     if let Ok(mut stream) = TcpStream::connect(&conn.address) {
         println!("Connected to {}", &conn.address);
-        // send_cmd!("CAP LS 302" => stream);
         send_auth(&conn, &mut stream)?;
         if let Some(passwd) = &conn.password {
             let passwd_cmd = format!("PASS {}", passwd);
@@ -70,11 +30,13 @@ fn main() -> Result<()> {
         }
 
         let channels = Arc::new(Mutex::new(Vec::<Channel>::new()));
-        let active_channel = Arc::new(Mutex::new(0));
+        let active_channel = Arc::new(AtomicUsize::new(0));
 
         let mut stream_clone = stream.try_clone().expect("Error cloning stream");
         let (tx, rx) = mpsc::channel();
-        let (mx_channels, mx_active) = (Arc::clone(&channels), Arc::clone(&active_channel));
+        let chans_clone = Arc::clone(&channels);
+        let act_chan_clone = Arc::clone(&active_channel);
+
         let channel_thread = thread::spawn(move || -> Result<()> {
             loop {
                 let mut reader = BufReader::new(&stream_clone);
