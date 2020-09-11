@@ -19,7 +19,7 @@ use channel::Channel;
 use utils::*;
 
 fn main() -> Result<()> {
-    let conn = argparse::setup()?;
+    let conn = Arc::new(argparse::setup()?);
 
     if let Ok(mut stream) = TcpStream::connect(&conn.address) {
         println!("Connected to {}", &conn.address);
@@ -32,31 +32,35 @@ fn main() -> Result<()> {
         let channels = Arc::new(Mutex::new(Vec::<Channel>::new()));
         let active_channel = Arc::new(AtomicUsize::new(0));
 
-        let mut stream_clone = stream.try_clone().expect("Error cloning stream");
+        let mut stream_c = stream.try_clone().expect("Error cloning stream");
         let (tx, rx) = mpsc::channel();
-        let chans_clone = Arc::clone(&channels);
-        let act_chan_clone = Arc::clone(&active_channel);
+        let channels_c = Arc::clone(&channels);
+        let act_chan_c = Arc::clone(&active_channel);
+        let conn_c = Arc::clone(&conn);
 
         let channel_thread = thread::spawn(move || -> Result<()> {
             loop {
-                let mut reader = BufReader::new(&stream_clone);
+                let mut reader = BufReader::new(&stream_c);
                 let mut message = String::new();
                 reader.read_line(&mut message)?;
 
                 match message {
-                    m if m.contains("PING") => pong(&m, &mut stream_clone)?,
+                    m if m.contains("PING") => pong(&m, &mut stream_c)?,
                     m if m.contains("PRIVMSG") => {
-                        if let Some(msg) = parse_msg(&m) {
-                            let mut channels = chans_clone.lock().unwrap();
-                            if let Some(channel) =
-                                channels.get_mut(act_chan_clone.load(Ordering::Relaxed))
-                            {
-                                print_msg(&m);
-                                channel.write(&msg)?;
-                            } else {
-                                // let indices = channels.iter().map(|c| c.get_id());
-                                // if let Some(index) = indices.position(|c| c == )
-                            }
+                        if let Some((target, msg)) = parse_msg_with_target(&m) {
+                            let mut channels = channels_c.lock().unwrap();
+                            if let Target::Single(t) = target {
+                                let mut iter = channels.iter_mut().enumerate();
+                                if let Some((i, tc)) = iter.find(|(_, c)| c.get_id() == t) {
+                                    tc.write(&msg)?;
+                                    if act_chan_c.load(Ordering::Relaxed) == i {
+                                        println!("{}", &msg);
+                                    }
+                                } else if t == &conn_c.username {
+                                    println!("Query triggered");
+                                    // TODO: implement
+                                }
+                            };
                         }
                     }
                     m => print_msg(&m),
@@ -98,9 +102,8 @@ fn main() -> Result<()> {
                     "c" => {
                         let channels = channels.lock().unwrap();
                         if let Ok(target) = &inp[2..].trim().parse::<usize>() {
-                            active_channel.store(*target, Ordering::Relaxed);
-                            if let Some(_) = channels.get(active_channel.load(Ordering::Relaxed)) {
-                                // TODO: implement channel switching
+                            if channels.get(*target).is_some() {
+                                active_channel.store(*target, Ordering::Relaxed);
                             }
                         } else {
                             let buffers = channels.iter().map(|c| c.get_id());
@@ -108,7 +111,7 @@ fn main() -> Result<()> {
                             for (i, elem) in buffers.enumerate() {
                                 print!("[{}]{} ", i, elem);
                             }
-                            print!("\n");
+                            println!();
                         }
                     }
                     &_ => println!("Unknown command"),
