@@ -1,8 +1,7 @@
+use crate::connection::Connection;
 use std::io::prelude::*;
 use std::io::Result;
 use std::net::TcpStream;
-
-use crate::connection::Connection;
 
 #[cfg(test)]
 mod tests {
@@ -10,7 +9,8 @@ mod tests {
 
     #[test]
     pub fn parsing_privmsg_works() {
-        let test_str = String::from(":Ranmaru!~ranmaru@2a02:908:13b2:5380:6c18:852b:8306:ac33 PRIVMSG ##rantestfoobazinga1337 :Foo! :D");
+        let test_str =
+            String::from(":Ranmaru!~ranmaru@2a02:908:13b2:5380:6c18:852b:8306:ac33 PRIVMSG ##rantestfoobazinga1337 :Foo! :D");
         let expected = String::from("<Ranmaru> Foo! :D");
         assert_eq!(parse_msg(&test_str), Some(expected));
     }
@@ -33,6 +33,7 @@ macro_rules! send_cmd {
 }
 
 pub fn send_auth(conn: &Connection, stream: &mut TcpStream) -> Result<()> {
+    // returns a Result type to catch errors in the marco
     let nick_cmd = format!("NICK {}", &conn.username);
     let user_cmd = format!("USER {0} * * :{0}", &conn.username);
     send_cmd!(nick_cmd => stream);
@@ -40,11 +41,10 @@ pub fn send_auth(conn: &Connection, stream: &mut TcpStream) -> Result<()> {
     Ok(())
 }
 
-pub fn print_msg(message: &str) -> Result<()> {
+pub fn print_msg(message: &str) {
     if let Some(msg) = parse_msg(message) {
         println!("{}", &msg);
     }
-    Ok(())
 }
 
 pub fn parse_msg(message: &str) -> Option<String> {
@@ -75,6 +75,7 @@ fn parse_notice(message: &str) -> Option<String> {
 }
 
 pub fn pong(inp: &str, stream: &mut TcpStream) -> Result<()> {
+    // returns a Result type to catch errors in the marco
     if let Some(resp) = inp.splitn(2, ':').last() {
         let pong_cmd = format!("PONG :{}", &resp);
         send_cmd!(pong_cmd => stream);
