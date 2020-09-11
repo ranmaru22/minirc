@@ -29,6 +29,11 @@ pub enum Target<'msg> {
     All,
 }
 
+pub enum Origin<'msg> {
+    User(&'msg str),
+    Server,
+}
+
 #[macro_export]
 macro_rules! send_cmd {
     ($cmd:expr => $to:expr) => {
@@ -53,13 +58,13 @@ pub fn print_msg(message: &str) {
 }
 
 pub fn parse_msg(message: &str) -> Option<String> {
-    if let Some((_, msg)) = parse_msg_with_target(message) {
+    if let Some((.., msg)) = parse_msg_with_target(message) {
         return Some(msg);
     }
     None
 }
 
-pub fn parse_msg_with_target(message: &str) -> Option<(Target<'_>, String)> {
+pub fn parse_msg_with_target(message: &str) -> Option<(Origin<'_>, Target<'_>, String)> {
     match message {
         msg if msg.contains("PRIVMSG") => parse_privmsg(&msg),
         msg if msg.contains("NOTICE") => parse_notice(&msg),
@@ -67,23 +72,27 @@ pub fn parse_msg_with_target(message: &str) -> Option<(Target<'_>, String)> {
     }
 }
 
-fn parse_privmsg(message: &str) -> Option<(Target<'_>, String)> {
+fn parse_privmsg(message: &str) -> Option<(Origin<'_>, Target<'_>, String)> {
     let mut split = message.trim().splitn(2, "PRIVMSG");
     if let (Some(name), Some(msg)) = (split.next(), split.next()) {
         let name = &name.split('!').next().unwrap()[1..];
         let mut msg_split = msg.splitn(2, ':');
         let target = msg_split.next().unwrap().trim();
         let msg = msg_split.next().unwrap().trim();
-        return Some((Target::Single(target), format!("<{}> {}", name, msg)));
+        return Some((
+            Origin::User(name),
+            Target::Single(target),
+            format!("<{}> {}", name, msg),
+        ));
     }
     None
 }
 
-fn parse_notice(message: &str) -> Option<(Target<'_>, String)> {
+fn parse_notice(message: &str) -> Option<(Origin<'_>, Target<'_>, String)> {
     let split = message.trim().splitn(2, "NOTICE");
     if let Some(notice) = split.last() {
         let notice = notice.splitn(2, ':').last().unwrap();
-        return Some((Target::All, format!("NOTICE {}", notice)));
+        return Some((Origin::Server, Target::All, format!("NOTICE {}", notice)));
     }
     None
 }

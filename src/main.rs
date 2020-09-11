@@ -1,5 +1,5 @@
 #![warn(missing_debug_implementations, rust_2018_idioms)]
-const COMMAND_PREFIX: char = '/';
+const COMMAND_PREFIX: char = ':';
 
 use std::io::prelude::*;
 use std::io::{stdin, BufReader, Result};
@@ -47,20 +47,31 @@ fn main() -> Result<()> {
                 match message {
                     m if m.contains("PING") => pong(&m, &mut stream_c)?,
                     m if m.contains("PRIVMSG") => {
-                        if let Some((target, msg)) = parse_msg_with_target(&m) {
+                        if let Some((origin, target, msg)) = parse_msg_with_target(&m) {
                             let mut channels = channels_c.lock().unwrap();
+                            let mut iter = channels.iter_mut().enumerate();
                             if let Target::Single(t) = target {
-                                let mut iter = channels.iter_mut().enumerate();
                                 if let Some((i, tc)) = iter.find(|(_, c)| c.get_id() == t) {
                                     tc.write(&msg)?;
                                     if act_chan_c.load(Ordering::Relaxed) == i {
                                         println!("{}", &msg);
                                     }
-                                } else if t == &conn_c.username {
-                                    println!("Query triggered");
-                                    // TODO: implement
-                                }
-                            };
+                                } else if t == conn_c.username {
+                                    if let Origin::User(u) = origin {
+                                        if let Some((i, tc)) = iter.find(|(_, c)| c.get_id() == u) {
+                                            tc.write(&msg)?;
+                                            if act_chan_c.load(Ordering::Relaxed) == i {
+                                                println!("{}", &msg);
+                                            }
+                                        } else {
+                                            channels.push(Channel::new(u, &conn_c.server));
+                                            if let Some(tc) = channels.last_mut() {
+                                                tc.write(&msg)?;
+                                            }
+                                        }
+                                    }
+                                };
+                            }
                         }
                     }
                     m => print_msg(&m),
