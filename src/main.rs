@@ -46,19 +46,25 @@ fn main() -> Result<()> {
                 match message {
                     m if m.contains("PING") => pong(&m, &mut stream_clone)?,
                     m if m.contains("PRIVMSG") => {
-                        print_msg(&m)?;
-                        let mut channels = mx_channels.lock().unwrap();
-                        let active_channel = mx_active.lock().unwrap();
-                        if let Some(channel) = channels.get_mut(*active_channel) {
-                            channel.write(&m)?;
+                        if let Some(msg) = parse_msg(&m) {
+                            let mut channels = chans_clone.lock().unwrap();
+                            if let Some(channel) =
+                                channels.get_mut(act_chan_clone.load(Ordering::Relaxed))
+                            {
+                                print_msg(&m);
+                                channel.write(&msg)?;
+                            } else {
+                                // let indices = channels.iter().map(|c| c.get_id());
+                                // if let Some(index) = indices.position(|c| c == )
+                            }
                         }
                     }
-                    m => println!("{}", &m),
+                    m => print_msg(&m),
                 }
 
                 match rx.try_recv() {
                     Ok("QUIT") | Err(TryRecvError::Disconnected) => break,
-                    Ok(_) | Err(TryRecvError::Empty) => {}
+                    Ok(_) | Err(TryRecvError::Empty) => (),
                 }
             }
             Ok(())
@@ -84,27 +90,32 @@ fn main() -> Result<()> {
                         let join_cmd = format!("JOIN {}", args);
                         send_cmd!(join_cmd => stream);
                         // TODO: check whether join is successful
-                        let joined_chan = Channel::new(args.trim().to_owned());
                         let mut channels = channels.lock().unwrap();
-                        let mut active_channel = active_channel.lock().unwrap();
-                        println!("CHAN FILE: {}", joined_chan.get_fp());
-                        channels.push(joined_chan);
-                        *active_channel = channels.len();
+                        channels.push(Channel::new(args.trim(), &conn.server));
+                        let index = channels.len() - 1;
+                        active_channel.store(index, Ordering::Relaxed);
                     }
                     "c" => {
-                        if let Ok(target) = &inp[2..].parse::<usize>() {
-                            let mut active_channel = active_channel.lock().unwrap();
-                            *active_channel = *target;
+                        let channels = channels.lock().unwrap();
+                        if let Ok(target) = &inp[2..].trim().parse::<usize>() {
+                            active_channel.store(*target, Ordering::Relaxed);
+                            if let Some(_) = channels.get(active_channel.load(Ordering::Relaxed)) {
+                                // TODO: implement channel switching
+                            }
                         } else {
-                            println!("Invalid buffer");
+                            let buffers = channels.iter().map(|c| c.get_id());
+                            print!("Buffers: ");
+                            for (i, elem) in buffers.enumerate() {
+                                print!("[{}]{} ", i, elem);
+                            }
+                            print!("\n");
                         }
                     }
                     &_ => println!("Unknown command"),
                 }
             } else {
                 let mut channels = channels.lock().unwrap();
-                let active_channel = active_channel.lock().unwrap();
-                if let Some(channel) = channels.get_mut(*active_channel) {
+                if let Some(channel) = channels.get_mut(active_channel.load(Ordering::Relaxed)) {
                     let privmsg = format!("PRIVMSG {} :{}", channel.get_id(), &inp);
                     send_cmd!(privmsg => stream);
                     let log = format!("<{}> {}", &conn.username, &inp);
