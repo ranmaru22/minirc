@@ -12,7 +12,13 @@ mod tests {
         let test_str =
             String::from(":Ranmaru!~ranmaru@2a02:908:13b2:5380:6c18:852b:8306:ac33 PRIVMSG ##rantestfoobazinga1337 :Foo! :D");
         let expected = String::from("<Ranmaru> Foo! :D");
+        let expected_with_target = (
+            Origin::User("Ranmaru"),
+            Target::Single("##rantestfoobazinga1337"),
+            String::from("<Ranmaru> Foo! :D"),
+        );
         assert_eq!(parse_msg(&test_str), Some(expected));
+        assert_eq!(parse_msg_with_target(&test_str), Some(expected_with_target));
     }
 
     #[test]
@@ -24,11 +30,13 @@ mod tests {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Target<'msg> {
     Single(&'msg str),
     All,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Origin<'msg> {
     User(&'msg str),
     Server,
