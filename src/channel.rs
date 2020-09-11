@@ -1,4 +1,5 @@
-use crate::CONFIG_PATH;
+const CONFIG_PATH: &str = ".config/minirc/";
+
 use std::env;
 use std::fs::{create_dir_all, File, OpenOptions};
 use std::io::Write;
