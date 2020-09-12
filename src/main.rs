@@ -67,13 +67,17 @@ fn main() -> Result<()> {
                 inp.pop();
             }
 
-            if let Some(COMMAND_PREFIX) = inp.chars().next() {
+            if inp.starts_with(COMMAND_PREFIX) {
                 let cmd = &inp[1..2];
                 match cmd {
                     "q" => {
-                        // TODO: part all joined channels before quitting
-                        // TODO: support custom quitmsg
-                        Command::Quit("Quitting ...").send(stream)?;
+                        let args = &inp[2..].trim();
+                        let quitmsg = if args.is_empty() {
+                            "Quitting ..."
+                        } else {
+                            args
+                        };
+                        Command::Quit(quitmsg).send(stream)?;
                         tx.send("QUIT").expect("Error sending QUIT cmd");
                         break;
                     }
