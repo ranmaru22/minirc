@@ -2,37 +2,39 @@
 const COMMAND_PREFIX: char = ':';
 
 use std::io::prelude::*;
-use std::io::{stdin, BufReader, Result};
+use std::io::{stdin, stdout, BufReader, Result, Write};
 use std::net::{Shutdown, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use termion::raw::IntoRawMode;
 
 #[macro_use]
 mod utils;
 mod argparse;
 mod channel;
+mod command;
 mod connection;
 
 use channel::Channel;
+use command::Command;
 use utils::*;
 
 fn main() -> Result<()> {
     let conn = Arc::new(argparse::setup()?);
+    // let (cin, mut cout) = (stdin(), stdout().into_raw_mode().unwrap());
 
-    if let Ok(mut stream) = TcpStream::connect(&conn.address) {
+    if let Ok(ref mut stream) = TcpStream::connect(&conn.address) {
+        // write!(cout, "{}", termion::clear::All).unwrap();
+        // cout.flush().unwrap();
         println!("Connected to {}", &conn.address);
-        send_auth(&conn, &mut stream)?;
-        if let Some(passwd) = &conn.password {
-            let passwd_cmd = format!("PASS {}", passwd);
-            send_cmd!(passwd_cmd => stream);
-        }
+        send_auth(&conn, stream)?;
 
         let channels = Arc::new(Mutex::new(Vec::<Channel>::new()));
         let active_channel = Arc::new(AtomicUsize::new(0));
 
-        let mut stream_c = stream.try_clone().expect("Error cloning stream");
+        let stream_c = stream.try_clone().expect("Error cloning stream");
         let (tx, rx) = mpsc::channel();
         let channels_c = Arc::clone(&channels);
         let act_chan_c = Arc::clone(&active_channel);
@@ -43,38 +45,10 @@ fn main() -> Result<()> {
                 let mut reader = BufReader::new(&stream_c);
                 let mut message = String::new();
                 reader.read_line(&mut message)?;
+                let command = Command::from_str(&message);
 
-                match message {
-                    m if m.contains("PING") => pong(&m, &mut stream_c)?,
-                    m if m.contains("PRIVMSG") => {
-                        if let Some((origin, target, msg)) = parse_msg_with_target(&m) {
-                            let mut channels = channels_c.lock().unwrap();
-                            let mut iter = channels.iter_mut().enumerate();
-                            if let Target::Single(t) = target {
-                                if let Some((i, tc)) = iter.find(|(_, c)| c.get_id() == t) {
-                                    tc.write(&msg)?;
-                                    if act_chan_c.load(Ordering::Relaxed) == i {
-                                        println!("{}", &msg);
-                                    }
-                                } else if t == conn_c.username {
-                                    if let Origin::User(u) = origin {
-                                        if let Some((i, tc)) = iter.find(|(_, c)| c.get_id() == u) {
-                                            tc.write(&msg)?;
-                                            if act_chan_c.load(Ordering::Relaxed) == i {
-                                                println!("{}", &msg);
-                                            }
-                                        } else {
-                                            channels.push(Channel::new(u, &conn_c.server));
-                                            if let Some(tc) = channels.last_mut() {
-                                                tc.write(&msg)?;
-                                            }
-                                        }
-                                    }
-                                };
-                            }
-                        }
-                    }
-                    m => print_msg(&m),
+                match command {
+                    _ => println!("{}", command.to_printable()),
                 }
 
                 match rx.try_recv() {
@@ -97,13 +71,15 @@ fn main() -> Result<()> {
                 let cmd = &inp[1..2];
                 match cmd {
                     "q" => {
+                        // TODO: part all joined channels before quitting
+                        // TODO: support custom quitmsg
+                        Command::Quit("Quitting ...").send(stream)?;
                         tx.send("QUIT").expect("Error sending QUIT cmd");
                         break;
                     }
                     "j" => {
                         let args = &inp[2..];
-                        let join_cmd = format!("JOIN {}", args);
-                        send_cmd!(join_cmd => stream);
+                        Command::Join(&args).send(stream)?;
                         // TODO: check whether join is successful
                         let mut channels = channels.lock().unwrap();
                         channels.push(Channel::new(args.trim(), &conn.server));
@@ -130,10 +106,10 @@ fn main() -> Result<()> {
             } else {
                 let mut channels = channels.lock().unwrap();
                 if let Some(channel) = channels.get_mut(active_channel.load(Ordering::Relaxed)) {
-                    let privmsg = format!("PRIVMSG {} :{}", channel.get_id(), &inp);
-                    send_cmd!(privmsg => stream);
-                    let log = format!("<{}> {}", &conn.username, &inp);
-                    channel.write(&log)?;
+                    let target = channel.get_id().to_owned();
+                    let privmsg = Command::Privmsg(&conn.username, &target, &inp);
+                    privmsg.send(stream)?;
+                    channel.write(&privmsg.to_printable())?;
                 }
             }
 
