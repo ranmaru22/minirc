@@ -82,13 +82,31 @@ fn main() -> Result<()> {
                         break;
                     }
                     "j" => {
-                        let args = &inp[2..];
+                        let args: Vec<_> = inp[2..].split_whitespace().collect();
                         Command::Join(&args).send(stream)?;
                         // TODO: check whether join is successful
                         let mut channels = channels.lock().unwrap();
-                        channels.push(Channel::new(args.trim(), &conn.server));
+                        for channel in args {
+                            channels.push(Channel::new(channel, &conn.server));
+                        }
                         let index = channels.len() - 1;
                         active_channel.store(index, Ordering::Relaxed);
+                    }
+                    "p" => {
+                        let args: Vec<_> = inp[2..].split_whitespace().collect();
+                        Command::Part(&args).send(stream)?;
+                        let mut channels = channels.lock().unwrap();
+                        for channel in args {
+                            if let Some(index) = channels.iter().position(|c| c.get_id() == channel)
+                            {
+                                channels.remove(index);
+                                active_channel.compare_and_swap(
+                                    index,
+                                    channels.len() - 1,
+                                    Ordering::Relaxed,
+                                );
+                            }
+                        }
                     }
                     "c" => {
                         let channels = channels.lock().unwrap();
