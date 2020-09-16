@@ -66,14 +66,24 @@ fn main() -> Result<()> {
                 let mut channels = channels.lock().unwrap();
                 let index = active_channel.load(Ordering::Relaxed);
                 match command {
-                    Command::Privmsg(_, target, _) => {
+                    Command::Privmsg(sender, target, _) => {
                         let mut channel_names = channels.iter().map(|c| c.get_id());
-                        if let Some(pos) = channel_names.position(|c| c == target) {
-                            let printable = command.to_printable().unwrap();
+                        let printable = command.to_printable().unwrap();
+
+                        let log_target = match target {
+                            t if t == &conn.username => sender,
+                            _ => target,
+                        };
+
+                        if let Some(pos) = channel_names.position(|c| c == log_target) {
                             channels[pos].write(&printable)?;
                             if pos == index {
                                 println!("{}", &printable);
                             }
+                        } else {
+                            let mut c = Channel::new(log_target, &conn.server);
+                            c.write(&printable)?;
+                            channels.push(c);
                         }
                     }
 
