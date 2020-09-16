@@ -167,12 +167,11 @@ impl<'msg> Command<'msg> {
 
     /// Used to write to stdout or logs.
     /// Returns a printable string from a command type.
-    /// Returns an empty string on unknown or unprintable commands.
-    pub fn to_printable(&self) -> String {
+    pub fn to_printable(&self) -> Option<String> {
         match self {
-            Self::Privmsg(sender, _, msg) => format!("<{}> {}", sender, msg),
-            Self::Notice(.., msg) => format!("NOTICE {}", msg),
-            _ => String::default(),
+            Self::Privmsg(sender, _, msg) => Some(format!("<{}> {}", sender, msg)),
+            Self::Notice(.., msg) => Some(format!("NOTICE {}", msg)),
+            _ => None,
         }
     }
 
