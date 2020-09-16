@@ -1,24 +1,23 @@
 #![warn(missing_debug_implementations, rust_2018_idioms)]
 const COMMAND_PREFIX: char = ':';
 
-use std::io::prelude::*;
-use std::io::{stdin, stdout, BufReader, Result, Write};
-use std::net::{Shutdown, TcpStream};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
-use std::thread;
-use termion::raw::IntoRawMode;
-
-#[macro_use]
-mod utils;
 mod argparse;
 mod channel;
 mod command;
 mod connection;
+mod interface;
+mod utils;
+
+use std::io::{stdin, BufReader, Result};
+use std::net::{Shutdown, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
+use std::thread;
 
 use channel::Channel;
 use command::Command;
+use interface::Interface;
 use utils::*;
 
 fn main() -> Result<()> {
@@ -28,29 +27,34 @@ fn main() -> Result<()> {
         println!("Connected to {}", &conn.address);
         send_auth(&conn, stream)?;
 
-        let channels = vec![Channel::new(&conn.server, &conn.server)];
-        let channels = Arc::new(Mutex::new(channels));
-        let active_channel = Arc::new(AtomicUsize::new(0));
-        let shutdown = Arc::new(AtomicBool::new(false));
-
-        let stream_read = stream.try_clone().expect("Error cloning stream");
-        let mut stream_write = stream.try_clone().expect("Error cloning stream");
         let conn_c = conn.clone();
-        let channels_read = channels.clone();
-        let channels_write = channels.clone();
-        let active_channel_read = active_channel.clone();
-        let active_channel_write = active_channel.clone();
+
+        let interface = Arc::new(Interface::new(&conn.server));
+        let interface_read = interface.clone();
+        let interface_write = interface.clone();
+
+        // Shutdown flag
+        let shutdown = Arc::new(AtomicBool::new(false));
         let shutdown_read = shutdown.clone();
         let shutdown_write = shutdown.clone();
-        // let (read_tx, read_rx) = mpsc::channel();
-        // let (write_tx, write_rx) = mpsc::channel();
+        let shutdown_stdin = shutdown.clone();
 
+        // Stream clones
+        let stream_read = stream.try_clone().expect("Error cloning stream");
+        let mut stream_write = stream.try_clone().expect("Error cloning stream");
+
+        // Channels
+        let (write_tx, write_rx): (Sender<String>, Receiver<String>) = mpsc::channel();
+        let (stdout_tx, stdout_rx) = mpsc::channel();
+        let stdout_tx_c = stdout_tx.clone();
+
+        // Set up threads
         let mut threads = Vec::with_capacity(2);
 
         let read_thread = thread::spawn(move || -> Result<()> {
+            // Reading incoming data from TcpStream
             let stream = stream_read;
-            let channels = channels_read;
-            let active_channel = active_channel_read;
+            let interface = interface_read;
             let shutdown = shutdown_read;
 
             loop {
@@ -60,38 +64,37 @@ fn main() -> Result<()> {
 
                 let mut reader = BufReader::new(&stream);
                 let mut message = String::new();
-                reader.read_line(&mut message)?;
+                // reader.read_line(&mut message)?;
+                // BufRead::read_line conflicts with termion::read_line
+                std::io::BufRead::read_line(&mut reader, &mut message)?;
                 let command = Command::from_str(&message);
 
-                let mut channels = channels.lock().unwrap();
-                let index = active_channel.load(Ordering::Relaxed);
                 match command {
                     Command::Privmsg(sender, target, _) => {
-                        let mut channel_names = channels.iter().map(|c| c.get_id());
                         let printable = command.to_printable().unwrap();
 
                         let log_target = match target {
-                            t if t == &conn.username => sender,
+                            t if t == conn.username => sender,
                             _ => target,
                         };
 
-                        if let Some(pos) = channel_names.position(|c| c == log_target) {
-                            channels[pos].write(&printable)?;
-                            if pos == index {
-                                print!("{}", &printable);
+                        if let Some(pos) = interface.get_channel_pos(&log_target) {
+                            interface.write_to_chan(pos, &printable)?;
+                            if interface.is_active(&log_target) {
+                                stdout_tx.send(printable).expect("Could not send to stdout");
                             }
                         } else {
                             let mut c = Channel::new(log_target, &conn.server);
                             c.write(&printable)?;
-                            channels.push(c);
+                            interface.push_channel(c);
                         }
                     }
 
                     _ => {
                         if let Some(printable) = command.to_printable() {
-                            channels[0].write(&printable)?;
-                            if index == 0 {
-                                print!("{}", &printable);
+                            interface.write_to_chan(0, &printable)?;
+                            if interface.get_active_channel_pos() == 0 {
+                                stdout_tx.send(printable).expect("Could not send to stdout");
                             }
                         }
                     }
@@ -102,10 +105,11 @@ fn main() -> Result<()> {
         threads.push(read_thread);
 
         let write_thread = thread::spawn(move || -> Result<()> {
+            // Sending data to TcpStream
             let stream = &mut stream_write;
+            let stdout_tx = stdout_tx_c;
             let conn = conn_c;
-            let channels = channels_write;
-            let active_channel = active_channel_write;
+            let interface = interface_write;
             let shutdown = shutdown_write;
 
             loop {
@@ -113,82 +117,70 @@ fn main() -> Result<()> {
                     break;
                 }
 
-                let mut inp = String::new();
-                stdin().read_line(&mut inp).expect("Invalid input");
-                if inp.starts_with(COMMAND_PREFIX) {
-                    let cmd = &inp[1..2];
-                    let args: Vec<_> = inp[2..].split_whitespace().collect();
-
-                    let command = match cmd {
-                        "q" => {
-                            let quitmsg = "Quitting ...";
-                            shutdown.store(true, Ordering::Relaxed);
-                            Command::Quit(quitmsg)
-                        }
-
-                        "j" => {
-                            // TODO: check whether join is successful
-                            let mut channels = channels.lock().unwrap();
-                            for channel in &args {
-                                channels.push(Channel::new(channel, &conn.server));
+                if let Ok(ref inp) = write_rx.try_recv() {
+                    let argv: Vec<_>;
+                    let active_channel = interface.get_active_channel();
+                    let command = if inp.starts_with(COMMAND_PREFIX) {
+                        argv = inp[2..].split_whitespace().collect();
+                        match &inp[1..2] {
+                            "q" => {
+                                let quitmsg = if argv.is_empty() {
+                                    "Quitting ..."
+                                } else {
+                                    &inp[2..]
+                                };
+                                shutdown.store(true, Ordering::Relaxed);
+                                Command::Quit(quitmsg)
                             }
-                            let index = channels.len() - 1;
-                            active_channel.store(index, Ordering::Relaxed);
-                            Command::Join(&args)
-                        }
 
-                        "p" => {
-                            let mut channels = channels.lock().unwrap();
-                            for channel in &args {
-                                if let Some(index) =
-                                    channels.iter().position(|c| c.get_id() == *channel)
-                                {
-                                    channels.remove(index);
-                                    active_channel.compare_and_swap(
-                                        index,
-                                        channels.len() - 1,
-                                        Ordering::Relaxed,
-                                    );
+                            "j" => {
+                                // TODO: check whether join is successful
+                                for channel in &argv {
+                                    interface.push_channel(Channel::new(channel, &conn.server));
                                 }
+                                interface.store_active_channel(interface.channels_len() - 1);
+                                Command::Join(&argv)
                             }
-                            Command::Part(&args)
-                        }
 
-                        "c" => {
-                            let channels = channels.lock().unwrap();
-                            if let Ok(target) = &inp[2..].trim().parse::<usize>() {
-                                if channels.get(*target).is_some() {
-                                    active_channel.store(*target, Ordering::Relaxed);
+                            "p" => {
+                                for channel in &argv {
+                                    if let Some(index) = interface.get_channel_pos(*channel) {
+                                        interface.remove_channel(index);
+                                        if interface.is_active(*channel) {
+                                            interface
+                                                .store_active_channel(interface.channels_len() - 1);
+                                        }
+                                    }
                                 }
-                            } else {
-                                let buffers = channels.iter().map(|c| c.get_id());
-                                print!("Buffers: ");
-                                for (i, elem) in buffers.enumerate() {
-                                    print!("[{}]{} ", i, elem);
-                                }
-                                println!();
+                                Command::Part(&argv)
                             }
-                            Command::Unknown
-                        }
 
-                        &_ => Command::Unknown,
+                            "c" => {
+                                if let Ok(target) = &inp[2..].trim().parse::<usize>() {
+                                    if interface.get_channel(*target).is_some() {
+                                        interface.store_active_channel(*target);
+                                    }
+                                } else {
+                                    let mut printable = String::from("Buffers: ");
+                                    for i in 0..interface.channels_len() {
+                                        let name = interface.get_channel(i).unwrap();
+                                        printable.push_str(&format!("[{}]{} ", i, name));
+                                    }
+                                    stdout_tx.send(printable).expect("Could not send to stdout");
+                                }
+                                Command::Unknown
+                            }
+
+                            &_ => Command::Unknown,
+                        }
+                    } else {
+                        Command::Privmsg(&conn.username, &active_channel, &inp)
                     };
 
                     command.send(stream)?;
                     if let Some(printable) = command.to_printable() {
-                        print!("{}", &printable);
-                    }
-                } else {
-                    let mut channels = channels.lock().unwrap();
-                    if let Some(channel) = channels.get_mut(active_channel.load(Ordering::Relaxed))
-                    {
-                        let target = channel.get_id().to_owned();
-                        let privmsg = Command::Privmsg(&conn.username, &target, &inp);
-                        let printable = privmsg.to_printable();
-                        privmsg.send(stream)?;
-                        if let Some(msg) = printable {
-                            channel.write(&msg)?;
-                            print!("{}", &msg);
+                        if interface.get_active_channel_pos() != 0 {
+                            stdout_tx.send(printable).expect("Could not send to stdout");
                         }
                     }
                 }
@@ -197,16 +189,38 @@ fn main() -> Result<()> {
         });
         threads.push(write_thread);
 
+        let stdin_thread = thread::spawn(move || -> Result<()> {
+            // Reading input vom stdin
+            let shutdown = shutdown_stdin;
+
+            loop {
+                if shutdown.load(Ordering::Relaxed) {
+                    break;
+                }
+
+                let mut inp = String::new();
+                stdin().read_line(&mut inp).expect("Invalid input");
+                write_tx.send(inp).expect("Could not send input");
+            }
+            Ok(())
+        });
+        threads.push(stdin_thread);
+
+        // Main threads -- handling stdout
         loop {
             if shutdown.load(Ordering::Relaxed) {
                 break;
+            }
+
+            if let Ok(printable) = stdout_rx.try_recv() {
+                println!("{}", printable);
             }
         }
 
         for thread in threads {
             thread.join().unwrap()?;
         }
-        println!("Closing connection, bye!");
+        println!("Shutting down. Bye!.");
         stream.shutdown(Shutdown::Both)?;
     } else {
         println!("Could not connect to {}", &conn.address);
