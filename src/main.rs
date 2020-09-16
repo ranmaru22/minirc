@@ -28,24 +28,29 @@ fn main() -> Result<()> {
         println!("Connected to {}", &conn.address);
         send_auth(&conn, stream)?;
 
-        let channels = Arc::new(Mutex::new(Vec::<Channel>::new()));
+        let channels = vec![Channel::new(&conn.server, &conn.server)];
+        let channels = Arc::new(Mutex::new(channels));
         let active_channel = Arc::new(AtomicUsize::new(0));
         let shutdown = Arc::new(AtomicBool::new(false));
 
         let stream_read = stream.try_clone().expect("Error cloning stream");
         let mut stream_write = stream.try_clone().expect("Error cloning stream");
         let conn_c = conn.clone();
-        let channels_c = channels.clone();
-        let active_channel_c = active_channel.clone();
+        let channels_read = channels.clone();
+        let channels_write = channels.clone();
+        let active_channel_read = active_channel.clone();
+        let active_channel_write = active_channel.clone();
         let shutdown_read = shutdown.clone();
         let shutdown_write = shutdown.clone();
-        let (read_tx, read_rx) = mpsc::channel();
-        let (write_tx, write_rx) = mpsc::channel();
+        // let (read_tx, read_rx) = mpsc::channel();
+        // let (write_tx, write_rx) = mpsc::channel();
 
         let mut threads = Vec::with_capacity(2);
 
         let read_thread = thread::spawn(move || -> Result<()> {
             let stream = stream_read;
+            let channels = channels_read;
+            let active_channel = active_channel_read;
             let shutdown = shutdown_read;
 
             loop {
@@ -58,8 +63,28 @@ fn main() -> Result<()> {
                 reader.read_line(&mut message)?;
                 let command = Command::from_str(&message);
 
-                if let Some(s) = command.to_printable() {
-                    read_tx.send(s).expect("Error sending message");
+                let mut channels = channels.lock().unwrap();
+                let index = active_channel.load(Ordering::Relaxed);
+                match command {
+                    Command::Privmsg(_, target, _) => {
+                        let mut channel_names = channels.iter().map(|c| c.get_id());
+                        if let Some(pos) = channel_names.position(|c| c == target) {
+                            let printable = command.to_printable().unwrap();
+                            channels[pos].write(&printable)?;
+                            if pos == index {
+                                println!("{}", &printable);
+                            }
+                        }
+                    }
+
+                    _ => {
+                        if let Some(printable) = command.to_printable() {
+                            channels[0].write(&printable)?;
+                            if index == 0 {
+                                println!("{}", &printable);
+                            }
+                        }
+                    }
                 }
             }
             Ok(())
@@ -69,8 +94,8 @@ fn main() -> Result<()> {
         let write_thread = thread::spawn(move || -> Result<()> {
             let stream = &mut stream_write;
             let conn = conn_c;
-            let channels = channels_c;
-            let active_channel = active_channel_c;
+            let channels = channels_write;
+            let active_channel = active_channel_write;
             let shutdown = shutdown_write;
 
             loop {
@@ -144,9 +169,9 @@ fn main() -> Result<()> {
                     };
 
                     command.send(stream)?;
-                    write_tx
-                        .send(command.to_printable())
-                        .expect("Error sending command");
+                    if let Some(printable) = command.to_printable() {
+                        println!("{}", &printable);
+                    }
                 } else {
                     let mut channels = channels.lock().unwrap();
                     if let Some(channel) = channels.get_mut(active_channel.load(Ordering::Relaxed))
@@ -157,10 +182,8 @@ fn main() -> Result<()> {
                         privmsg.send(stream)?;
                         if let Some(msg) = printable {
                             channel.write(&msg)?;
+                            println!("{}", &msg);
                         }
-                        write_tx
-                            .send(privmsg.to_printable())
-                            .expect("Error sending command");
                     }
                 }
             }
@@ -171,14 +194,6 @@ fn main() -> Result<()> {
         loop {
             if shutdown.load(Ordering::Relaxed) {
                 break;
-            }
-
-            if let Ok(Some(r)) = write_rx.try_recv() {
-                println!("{}", r);
-            }
-
-            if let Ok(s) = read_rx.try_recv() {
-                println!("{}", s);
             }
         }
 
