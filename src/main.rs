@@ -4,7 +4,7 @@ const COMMAND_PREFIX: char = ':';
 use std::io::prelude::*;
 use std::io::{stdin, stdout, BufReader, Result, Write};
 use std::net::{Shutdown, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -33,27 +33,26 @@ fn main() -> Result<()> {
 
         let channels = Arc::new(Mutex::new(Vec::<Channel>::new()));
         let active_channel = Arc::new(AtomicUsize::new(0));
+        let shutdown = Arc::new(AtomicBool::new(false));
 
         let stream_c = stream.try_clone().expect("Error cloning stream");
-        let (tx, rx) = mpsc::channel();
-        let channels_c = Arc::clone(&channels);
-        let act_chan_c = Arc::clone(&active_channel);
-        let conn_c = Arc::clone(&conn);
+        let shutdown_c = shutdown.clone();
+        // let (tx, rx) = mpsc::channel();
 
         let channel_thread = thread::spawn(move || -> Result<()> {
+            let stream = stream_c;
+            let shutdown = shutdown_c;
             loop {
-                let mut reader = BufReader::new(&stream_c);
+                if shutdown.load(Ordering::Relaxed) {
+                    break;
+                }
+                let mut reader = BufReader::new(&stream);
                 let mut message = String::new();
                 reader.read_line(&mut message)?;
                 let command = Command::from_str(&message);
 
                 match command {
                     _ => println!("{}", command.to_printable()),
-                }
-
-                match rx.try_recv() {
-                    Ok("QUIT") | Err(TryRecvError::Disconnected) => break,
-                    Ok(_) | Err(TryRecvError::Empty) => (),
                 }
             }
             Ok(())
@@ -78,9 +77,10 @@ fn main() -> Result<()> {
                             args
                         };
                         Command::Quit(quitmsg).send(stream)?;
-                        tx.send("QUIT").expect("Error sending QUIT cmd");
+                        shutdown.store(true, Ordering::Relaxed);
                         break;
                     }
+
                     "j" => {
                         let args: Vec<_> = inp[2..].split_whitespace().collect();
                         Command::Join(&args).send(stream)?;
@@ -92,6 +92,7 @@ fn main() -> Result<()> {
                         let index = channels.len() - 1;
                         active_channel.store(index, Ordering::Relaxed);
                     }
+
                     "p" => {
                         let args: Vec<_> = inp[2..].split_whitespace().collect();
                         Command::Part(&args).send(stream)?;
@@ -108,6 +109,7 @@ fn main() -> Result<()> {
                             }
                         }
                     }
+
                     "c" => {
                         let channels = channels.lock().unwrap();
                         if let Ok(target) = &inp[2..].trim().parse::<usize>() {
@@ -123,6 +125,7 @@ fn main() -> Result<()> {
                             println!();
                         }
                     }
+
                     &_ => println!("Unknown command"),
                 }
             } else {
@@ -134,8 +137,6 @@ fn main() -> Result<()> {
                     channel.write(&privmsg.to_printable())?;
                 }
             }
-
-            tx.send("OK").expect("Error sending OK cmd");
         }
 
         match channel_thread.join().unwrap() {
