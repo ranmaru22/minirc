@@ -43,7 +43,7 @@ impl Channel {
 
     pub fn write(&mut self, message: &str) -> std::io::Result<()> {
         let mut file = OpenOptions::new().write(true).append(true).open(&self.fp)?;
-        writeln!(file, "{}", message)?;
+        write!(file, "{}", message)?;
         Ok(())
     }
 }

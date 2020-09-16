@@ -57,7 +57,7 @@ mod tests {
     pub fn printing_works() {
         let privmsg = Command::Privmsg("Ranmaru", "##foo", "Hello World!");
         assert_eq!(
-            privmsg.to_printable(),
+            privmsg.to_printable().unwrap(),
             String::from("<Ranmaru> Hello World!")
         );
     }

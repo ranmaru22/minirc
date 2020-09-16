@@ -78,7 +78,7 @@ fn main() -> Result<()> {
                         if let Some(pos) = channel_names.position(|c| c == log_target) {
                             channels[pos].write(&printable)?;
                             if pos == index {
-                                println!("{}", &printable);
+                                print!("{}", &printable);
                             }
                         } else {
                             let mut c = Channel::new(log_target, &conn.server);
@@ -91,7 +91,7 @@ fn main() -> Result<()> {
                         if let Some(printable) = command.to_printable() {
                             channels[0].write(&printable)?;
                             if index == 0 {
-                                println!("{}", &printable);
+                                print!("{}", &printable);
                             }
                         }
                     }
@@ -115,10 +115,6 @@ fn main() -> Result<()> {
 
                 let mut inp = String::new();
                 stdin().read_line(&mut inp).expect("Invalid input");
-                if let Some('\n') = inp.chars().next_back() {
-                    inp.pop();
-                }
-
                 if inp.starts_with(COMMAND_PREFIX) {
                     let cmd = &inp[1..2];
                     let args: Vec<_> = inp[2..].split_whitespace().collect();
@@ -180,7 +176,7 @@ fn main() -> Result<()> {
 
                     command.send(stream)?;
                     if let Some(printable) = command.to_printable() {
-                        println!("{}", &printable);
+                        print!("{}", &printable);
                     }
                 } else {
                     let mut channels = channels.lock().unwrap();
@@ -192,7 +188,7 @@ fn main() -> Result<()> {
                         privmsg.send(stream)?;
                         if let Some(msg) = printable {
                             channel.write(&msg)?;
-                            println!("{}", &msg);
+                            print!("{}", &msg);
                         }
                     }
                 }
