@@ -13,15 +13,14 @@ use libminirc::interface::Interface;
 use libminirc::{argparse, utils};
 
 fn main() -> Result<()> {
-    let conn = Arc::new(argparse::setup()?);
+    let conn = argparse::setup()?;
 
     if let Ok(ref mut stream) = TcpStream::connect(&conn.address) {
         println!("Connected to {}", &conn.address);
         utils::send_auth(&conn, stream)?;
 
-        let conn_c = conn.clone();
-
-        let interface = Arc::new(Interface::new(&conn.server));
+        // Interface clones
+        let interface = Arc::new(Interface::new(conn));
         let interface_read = interface.clone();
         let interface_write = interface.clone();
         let interface_stdin = interface.clone();
@@ -60,7 +59,7 @@ fn main() -> Result<()> {
                         let printable = command.to_printable().unwrap();
 
                         let log_target = match target {
-                            t if t == conn.username => sender,
+                            t if t == interface.get_username() => sender,
                             _ => target,
                         };
 
@@ -70,7 +69,8 @@ fn main() -> Result<()> {
                                 stdout_tx.send(printable).expect("Could not send to stdout");
                             }
                         } else {
-                            let mut c = Channel::new(log_target, &conn.server);
+                            let server = interface.get_server();
+                            let mut c = Channel::new(log_target, &server);
                             c.write(&printable)?;
                             interface.push_channel(c);
                         }
@@ -94,7 +94,6 @@ fn main() -> Result<()> {
             // Sending data to TcpStream
             let stream = &mut stream_write;
             let stdout_tx = stdout_tx_c;
-            let conn = conn_c;
             let interface = interface_write;
 
             loop {
@@ -105,6 +104,7 @@ fn main() -> Result<()> {
                 if let Ok(ref inp) = write_rx.try_recv() {
                     let argv: Vec<_>;
                     let active_channel = interface.get_active_channel();
+                    let username = interface.get_username();
                     let command = if inp.starts_with(COMMAND_PREFIX) {
                         argv = inp[2..].split_whitespace().collect();
                         match &inp[1..2] {
@@ -121,7 +121,10 @@ fn main() -> Result<()> {
                             "j" => {
                                 // TODO: check whether join is successful
                                 for channel in &argv {
-                                    interface.push_channel(Channel::new(channel, &conn.server));
+                                    interface.push_channel(Channel::new(
+                                        channel,
+                                        &interface.get_server(),
+                                    ));
                                 }
                                 interface.store_active_channel(interface.channels_len() - 1);
                                 Command::Join(&argv)
@@ -159,7 +162,7 @@ fn main() -> Result<()> {
                             &_ => Command::Unknown,
                         }
                     } else {
-                        Command::Privmsg(&conn.username, &active_channel, &inp)
+                        Command::Privmsg(&username, &active_channel, &inp)
                     };
 
                     command.send(stream)?;
