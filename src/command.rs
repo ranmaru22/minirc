@@ -17,8 +17,59 @@ pub enum Command<'msg> {
 }
 
 impl<'msg> Command<'msg> {
-    /// Parses a receivable str into a command type.
-    pub fn from_str(inp: &'msg str) -> Self {
+    /// Returns a sendable string from a command type.
+    pub fn to_string(&self) -> Option<String> {
+        match self {
+            Self::Privmsg(_, target, msg) => Some(format!("PRIVMSG {} :{}\r\n", target, msg)),
+            Self::Notice(_, target, msg) => Some(format!("NOTICE {} :{}\r\n", target, msg)),
+            Self::Ping(payload) => Some(format!("PING {}\r\n", payload)),
+            Self::Pong(payload) => Some(format!("PONG {}\r\n", payload)),
+            Self::Pass(passwd) => Some(format!("PASS {}\r\n", passwd)),
+            Self::User(username, realname) => {
+                Some(format!("USER {} * * :{}\r\n", username, realname))
+            }
+            Self::Nick(nickname) => Some(format!("NICK {}\r\n", nickname)),
+            Self::Join(channels) => {
+                let channels = channels.join(",");
+                Some(format!("JOIN {}\r\n", channels))
+            }
+            Self::Part(channels) => {
+                let channels = channels.join(",");
+                Some(format!("PART {}\r\n", channels))
+            }
+            Self::Quit(quitmsg) => Some(format!("QUIT :{}\r\n", quitmsg)),
+            Self::Unknown => None,
+        }
+    }
+
+    /// Returns a raw sendable string from a command type.
+    /// Returns an empty string on unknown commands.
+    pub fn to_unwrapped_string(&self) -> String {
+        self.to_string().unwrap_or_default()
+    }
+
+    /// Used to write to stdout or logs.
+    /// Returns a printable string from a command type.
+    pub fn to_printable(&self) -> Option<String> {
+        match self {
+            Self::Privmsg(sender, _, msg) => Some(format!("<{}> {}", sender, msg)),
+            Self::Notice(.., msg) => Some(format!("NOTICE {}", msg)),
+            _ => None,
+        }
+    }
+
+    /// Sends a sendable command type to a stream.
+    pub fn send(&self, stream: &mut TcpStream) -> Result<()> {
+        if let Some(cmd) = self.to_string() {
+            let bytes = cmd.into_bytes();
+            stream.write_all(&bytes)?;
+        }
+        Ok(())
+    }
+}
+
+impl<'msg> From<&'msg str> for Command<'msg> {
+    fn from(inp: &'msg str) -> Self {
         let mut split = inp.split_whitespace();
 
         let sender = match split.next() {
@@ -68,57 +119,7 @@ impl<'msg> Command<'msg> {
                 Self::Pong(msg)
             }
 
-            None | _ => Self::Unknown,
+            _ => Self::Unknown,
         }
-    }
-
-    /// Returns a sendable string from a command type.
-    pub fn to_string(&self) -> Option<String> {
-        match self {
-            Self::Privmsg(_, target, msg) => Some(format!("PRIVMSG {} :{}\r\n", target, msg)),
-            Self::Notice(_, target, msg) => Some(format!("NOTICE {} :{}\r\n", target, msg)),
-            Self::Ping(payload) => Some(format!("PING {}\r\n", payload)),
-            Self::Pong(payload) => Some(format!("PONG {}\r\n", payload)),
-            Self::Pass(passwd) => Some(format!("PASS {}\r\n", passwd)),
-            Self::User(username, realname) => {
-                Some(format!("USER {} * * :{}\r\n", username, realname))
-            }
-            Self::Nick(nickname) => Some(format!("NICK {}\r\n", nickname)),
-            Self::Join(channels) => {
-                let channels = channels.join(",");
-                Some(format!("JOIN {}\r\n", channels))
-            }
-            Self::Part(channels) => {
-                let channels = channels.join(",");
-                Some(format!("PART {}\r\n", channels))
-            }
-            Self::Quit(quitmsg) => Some(format!("QUIT :{}\r\n", quitmsg)),
-            Self::Unknown => None,
-        }
-    }
-
-    /// Returns a raw sendable string from a command type.
-    /// Returns an empty string on unknown commands.
-    pub fn to_unwrapped_string(&self) -> String {
-        self.to_string().unwrap_or_default()
-    }
-
-    /// Used to write to stdout or logs.
-    /// Returns a printable string from a command type.
-    pub fn to_printable(&self) -> Option<String> {
-        match self {
-            Self::Privmsg(sender, _, msg) => Some(format!("<{}> {}", sender, msg)),
-            Self::Notice(.., msg) => Some(format!("NOTICE {}", msg)),
-            _ => None,
-        }
-    }
-
-    /// Sends a sendable command type to a stream.
-    pub fn send(&self, stream: &mut TcpStream) -> Result<()> {
-        if let Some(cmd) = self.to_string() {
-            let bytes = cmd.into_bytes();
-            stream.write_all(&bytes)?;
-        }
-        Ok(())
     }
 }
