@@ -1,13 +1,6 @@
 #![warn(missing_debug_implementations, rust_2018_idioms)]
 const COMMAND_PREFIX: char = ':';
 
-mod argparse;
-mod channel;
-mod command;
-mod connection;
-mod interface;
-mod utils;
-
 use std::io::{stdin, BufReader, Result};
 use std::net::{Shutdown, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,17 +8,17 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
 
-use channel::Channel;
-use command::Command;
-use interface::Interface;
-use utils::*;
+use libminirc::channel::Channel;
+use libminirc::command::Command;
+use libminirc::interface::Interface;
+use libminirc::{argparse, utils};
 
 fn main() -> Result<()> {
     let conn = Arc::new(argparse::setup()?);
 
     if let Ok(ref mut stream) = TcpStream::connect(&conn.address) {
         println!("Connected to {}", &conn.address);
-        send_auth(&conn, stream)?;
+        utils::send_auth(&conn, stream)?;
 
         let conn_c = conn.clone();
 

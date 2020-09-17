@@ -1,4 +1,4 @@
-use crate::Channel;
+use crate::channel::Channel;
 use std::io::Result;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
