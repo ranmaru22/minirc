@@ -1,11 +1,12 @@
 use crate::channel::Channel;
 use std::io::Result;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 pub struct Interface {
     channels: Mutex<Vec<Channel>>,
     active_channel: AtomicUsize,
+    shutdown_flag: AtomicBool,
 }
 
 impl Interface {
@@ -13,10 +14,12 @@ impl Interface {
         let root = vec![Channel::new(server, server)];
         let channels = Mutex::new(root);
         let active_channel = AtomicUsize::new(0);
+        let shutdown_flag = AtomicBool::new(false);
 
         Self {
             channels,
             active_channel,
+            shutdown_flag,
         }
     }
 
@@ -80,5 +83,13 @@ impl Interface {
 
     pub fn store_active_channel(&self, n: usize) {
         self.active_channel.store(n, Ordering::Relaxed);
+    }
+
+    pub fn set_shutdown_flag(&self) {
+        self.shutdown_flag.store(true, Ordering::Relaxed);
+    }
+
+    pub fn should_shutdown(&self) -> bool {
+        self.shutdown_flag.load(Ordering::Relaxed)
     }
 }

@@ -3,7 +3,6 @@ const COMMAND_PREFIX: char = ':';
 
 use std::io::{stdin, BufReader, Result};
 use std::net::{Shutdown, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
@@ -25,12 +24,7 @@ fn main() -> Result<()> {
         let interface = Arc::new(Interface::new(&conn.server));
         let interface_read = interface.clone();
         let interface_write = interface.clone();
-
-        // Shutdown flag
-        let shutdown = Arc::new(AtomicBool::new(false));
-        let shutdown_read = shutdown.clone();
-        let shutdown_write = shutdown.clone();
-        let shutdown_stdin = shutdown.clone();
+        let interface_stdin = interface.clone();
 
         // Stream clones
         let stream_read = stream.try_clone().expect("Error cloning stream");
@@ -48,10 +42,9 @@ fn main() -> Result<()> {
             // Reading incoming data from TcpStream
             let stream = stream_read;
             let interface = interface_read;
-            let shutdown = shutdown_read;
 
             loop {
-                if shutdown.load(Ordering::Relaxed) {
+                if interface.should_shutdown() {
                     break;
                 }
 
@@ -60,7 +53,7 @@ fn main() -> Result<()> {
                 // reader.read_line(&mut message)?;
                 // BufRead::read_line conflicts with termion::read_line
                 std::io::BufRead::read_line(&mut reader, &mut message)?;
-                let command = Command::from_str(&message);
+                let command = Command::from(message.as_str());
 
                 match command {
                     Command::Privmsg(sender, target, _) => {
@@ -103,10 +96,9 @@ fn main() -> Result<()> {
             let stdout_tx = stdout_tx_c;
             let conn = conn_c;
             let interface = interface_write;
-            let shutdown = shutdown_write;
 
             loop {
-                if shutdown.load(Ordering::Relaxed) {
+                if interface.should_shutdown() {
                     break;
                 }
 
@@ -122,7 +114,7 @@ fn main() -> Result<()> {
                                 } else {
                                     &inp[2..]
                                 };
-                                shutdown.store(true, Ordering::Relaxed);
+                                interface.set_shutdown_flag();
                                 Command::Quit(quitmsg)
                             }
 
@@ -184,10 +176,10 @@ fn main() -> Result<()> {
 
         let stdin_thread = thread::spawn(move || -> Result<()> {
             // Reading input vom stdin
-            let shutdown = shutdown_stdin;
+            let interface = interface_stdin;
 
             loop {
-                if shutdown.load(Ordering::Relaxed) {
+                if interface.should_shutdown() {
                     break;
                 }
 
@@ -201,12 +193,12 @@ fn main() -> Result<()> {
 
         // Main threads -- handling stdout
         loop {
-            if shutdown.load(Ordering::Relaxed) {
+            if interface.should_shutdown() {
                 break;
             }
 
             if let Ok(printable) = stdout_rx.try_recv() {
-                println!("{}", printable);
+                print!("{}", printable);
             }
         }
 
