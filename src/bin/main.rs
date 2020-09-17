@@ -7,17 +7,17 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
 
+use libminirc::argparse;
 use libminirc::channel::Channel;
-use libminirc::command::Command;
+use libminirc::command::{send_auth, Command};
 use libminirc::interface::Interface;
-use libminirc::{argparse, utils};
 
 fn main() -> Result<()> {
     let conn = argparse::setup()?;
 
     if let Ok(ref mut stream) = TcpStream::connect(&conn.address) {
         println!("Connected to {}", &conn.address);
-        utils::send_auth(&conn, stream)?;
+        send_auth(&conn, stream)?;
 
         // Interface clones
         let interface = Arc::new(Interface::new(conn));

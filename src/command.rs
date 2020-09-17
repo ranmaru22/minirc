@@ -1,3 +1,4 @@
+use crate::connection::Connection;
 use std::io::{Result, Write};
 use std::net::TcpStream;
 
@@ -122,4 +123,13 @@ impl<'msg> From<&'msg str> for Command<'msg> {
             _ => Self::Unknown,
         }
     }
+}
+
+pub fn send_auth(conn: &Connection, stream: &mut TcpStream) -> Result<()> {
+    if let Some(ref passwd) = &conn.password {
+        Command::Pass(passwd).send(stream)?;
+    }
+    Command::Nick(&conn.username).send(stream)?;
+    Command::User(&conn.username, &conn.username).send(stream)?;
+    Ok(())
 }
