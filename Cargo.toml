@@ -16,4 +16,4 @@ path = "src/bin/main.rs"
 
 [dependencies]
 argparse = "0.2.2"
-termion = "1.5.5"
+pancurses = "0.16.1"

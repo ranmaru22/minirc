@@ -53,8 +53,8 @@ impl<'msg> Command<'msg> {
     /// Returns a printable string from a command type.
     pub fn to_printable(&self) -> Option<String> {
         match self {
-            Self::Privmsg(sender, _, msg) => Some(format!("<{}> {}", sender, msg)),
-            Self::Notice(.., msg) => Some(format!("NOTICE {}", msg)),
+            Self::Privmsg(sender, _, msg) => Some(format!("<{}> {}", sender, msg.trim())),
+            Self::Notice(.., msg) => Some(format!("-> {}", msg.trim())),
             _ => None,
         }
     }

@@ -1,6 +1,7 @@
 #![warn(missing_debug_implementations, rust_2018_idioms)]
 const COMMAND_PREFIX: char = ':';
 
+use pancurses::*;
 use std::io::{stdin, BufReader, Result};
 use std::net::{Shutdown, TcpStream};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -11,12 +12,33 @@ use libminirc::argparse;
 use libminirc::channel::Channel;
 use libminirc::command::{send_auth, Command};
 use libminirc::interface::Interface;
+use libminirc::ui::*;
 
 fn main() -> Result<()> {
     let conn = argparse::setup()?;
 
     if let Ok(ref mut stream) = TcpStream::connect(&conn.address) {
-        println!("Connected to {}", &conn.address);
+        let term = initscr();
+        cbreak();
+        noecho();
+        term.timeout(0);
+        term.clear();
+        term.refresh();
+        term.keypad(true);
+
+        let (term_rows, term_cols) = term.get_max_yx();
+        let buffers_win = term.subwin(1, term_cols, 0, 0).unwrap();
+        let input_win = term.subwin(2, term_cols, term_rows - 2, 0).unwrap();
+        let output_win = term.subwin(term_rows - 3, term_cols, 1, 0).unwrap();
+        input_win.mv(0, 0);
+        input_win.hline('-', term_cols);
+        output_win.mv(0, 0);
+        output_win.printw(format!("Connected to {}\n", &conn.address));
+        buffers_win.refresh();
+        input_win.refresh();
+        output_win.refresh();
+
+        term.getch();
         send_auth(&conn, stream)?;
 
         // Interface clones
@@ -35,7 +57,7 @@ fn main() -> Result<()> {
         let stdout_tx_c = stdout_tx.clone();
 
         // Set up threads
-        let mut threads = Vec::with_capacity(2);
+        let mut threads = Vec::with_capacity(3);
 
         let read_thread = thread::spawn(move || -> Result<()> {
             // Reading incoming data from TcpStream
@@ -185,31 +207,90 @@ fn main() -> Result<()> {
                 if interface.should_shutdown() {
                     break;
                 }
-
-                let mut inp = String::new();
-                stdin().read_line(&mut inp).expect("Invalid input");
-                write_tx.send(inp).expect("Could not send input");
             }
             Ok(())
         });
         threads.push(stdin_thread);
 
-        // Main threads -- handling stdout
+        let (output_endy, output_endx) = output_win.get_max_yx();
+        let output_last_line = output_endy - 2;
+        output_win.mv(0, 0);
+        // DEBUG: remove this!
+        for _ in 1..15 {
+            output_win.printw("Foobar\n");
+        }
+        // Main thread -- handling stdout
+
+        input_win.mv(1, 0);
+        let mut inp = String::new();
         loop {
             if interface.should_shutdown() {
                 break;
             }
 
             if let Ok(printable) = stdout_rx.try_recv() {
-                print!("{}", printable);
+                let output_endx = output_endx as usize;
+                let mut words = printable.split_whitespace();
+                let mut line = String::with_capacity(output_endx);
+                output_win.refresh();
+                while let Some(word) = words.next() {
+                    if word.len() + line.len() < output_endx {
+                        line.push_str(word);
+                        line.push(' ');
+                    } else {
+                        line.insert(line.len() - 1, '\n');
+                        shift_lines_up(&output_win, output_last_line);
+                        output_win.printw(&line);
+                        output_win.refresh();
+                        line = String::with_capacity(output_endx);
+                        line.push_str(word);
+                        line.push(' ');
+                    }
+                }
+                line.insert(line.len() - 1, '\n');
+                shift_lines_up(&output_win, output_last_line);
+                output_win.printw(&line);
+                output_win.refresh();
+            }
+            let (y, x) = input_win.get_cur_yx();
+            match term.getch() {
+                Some(Input::KeyBackspace) => {
+                    input_win.mv(y, x - 1);
+                    inp.pop();
+                    input_win.delch();
+                }
+                Some(Input::KeyLeft) => {
+                    input_win.mv(y, x - 1);
+                }
+                Some(Input::KeyRight) => {
+                    if x < inp.len() as i32 {
+                        input_win.mv(y, x + 1);
+                    }
+                }
+                Some(Input::Character(c)) if c == '\n' => {
+                    write_tx.send(inp).expect("Could not send to WRITE");
+                    input_win.deleteln();
+                    input_win.mv(1, 0);
+                    inp = String::default();
+                }
+                Some(Input::Character(c)) => {
+                    inp.push(c);
+                    input_win.insch(c);
+                    input_win.mv(y, x + 1);
+                }
+                Some(_) | None => (),
+            }
+            if input_win.is_touched() {
+                input_win.refresh();
             }
         }
 
         for thread in threads {
             thread.join().unwrap()?;
         }
-        println!("Shutting down. Bye!.");
+        output_win.printw("Shutting down. Bye!");
         stream.shutdown(Shutdown::Both)?;
+        endwin();
     } else {
         println!("Could not connect to {}", &conn.address);
     }
