@@ -1,51 +1,34 @@
 #![warn(missing_debug_implementations, rust_2018_idioms)]
 const COMMAND_PREFIX: char = ':';
+const DEBUG_MODE: bool = true;
 
 use pancurses::*;
-use std::io::{stdin, BufReader, Result};
+use std::io::{prelude::*, BufReader, Result};
 use std::net::{Shutdown, TcpStream};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::thread;
 
-use libminirc::argparse;
-use libminirc::channel::Channel;
 use libminirc::command::{send_auth, Command};
 use libminirc::interface::Interface;
+use libminirc::thread_tools::*;
 use libminirc::ui::*;
+use libminirc::{argparse, refresh_all};
 
 fn main() -> Result<()> {
     let conn = argparse::setup()?;
 
     if let Ok(ref mut stream) = TcpStream::connect(&conn.address) {
-        let term = initscr();
-        cbreak(); // DEBUG ONLY
-        noecho();
-        term.timeout(5);
-        term.clear();
-        term.refresh();
-        term.keypad(true);
-
-        if has_colors() {
-            use_default_colors();
-            start_color();
-            init_pair(1, COLOR_RED, -1);
-            init_pair(0, -1, -1);
-        }
-
+        let term = init_curses(DEBUG_MODE);
         let (term_rows, term_cols) = term.get_max_yx();
-        let buffers_win = term.subwin(1, term_cols, 0, 0).unwrap();
-        let input_win = term.subwin(2, term_cols, term_rows - 2, 0).unwrap();
-        let output_win = term.subwin(term_rows - 3, term_cols, 1, 0).unwrap();
-        input_win.mv(0, 0);
-        input_win.hline('-', term_cols);
-        output_win.mv(0, 0);
-        output_win.printw(format!("Connected to {}\n", &conn.address));
-        buffers_win.refresh();
-        input_win.refresh();
-        output_win.refresh();
 
-        term.getch();
+        let buffers_win = term.subwin(1, term_cols, 0, 0).unwrap();
+        let input_win = term.subwin(1, term_cols, term_rows - 1, 0).unwrap();
+        let output_win = term.subwin(term_rows - 2, term_cols, 1, 0).unwrap();
+
+        output_win.printw(format!("Connected to {}\n", &conn.address));
+        refresh_all![buffers_win, input_win, output_win];
+
         send_auth(&conn, stream)?;
 
         // Interface clones
@@ -65,62 +48,28 @@ fn main() -> Result<()> {
         // Set up threads
         let mut threads = Vec::with_capacity(3);
 
+        // Reading incoming data from TcpStream
         let read_thread = thread::spawn(move || -> Result<()> {
-            // Reading incoming data from TcpStream
             let stream = stream_read;
             let interface = interface_read;
 
             loop {
-                if interface.should_shutdown() {
-                    break;
-                }
-
                 let mut reader = BufReader::new(&stream);
                 let mut message = String::new();
-                // reader.read_line(&mut message)?;
-                // BufRead::read_line conflicts with termion::read_line
-                std::io::BufRead::read_line(&mut reader, &mut message)?;
+                reader.read_line(&mut message)?;
                 let command = Command::from(message.as_str());
+                parse_incoming_cmd(command, &interface, &stdout_tx)?;
 
-                match command {
-                    Command::Privmsg(sender, target, _) => {
-                        let printable = command.to_printable().unwrap();
-
-                        let log_target = match target {
-                            t if t == interface.get_username() => sender,
-                            _ => target,
-                        };
-
-                        if let Some(pos) = interface.get_channel_pos(&log_target) {
-                            interface.write_to_chan(pos, &printable)?;
-                            if interface.is_active(&log_target) {
-                                stdout_tx.send(printable).expect("Could not send to stdout");
-                            }
-                        } else {
-                            let server = interface.get_server();
-                            let mut c = Channel::new(log_target, &server);
-                            c.write(&printable)?;
-                            interface.push_channel(c);
-                            interface.toggle_refresh_buffers_flag();
-                        }
-                    }
-
-                    _ => {
-                        if let Some(printable) = command.to_printable() {
-                            interface.write_to_chan(0, &printable)?;
-                            if interface.get_active_channel_pos() == 0 {
-                                stdout_tx.send(printable).expect("Could not send to stdout");
-                            }
-                        }
-                    }
+                if interface.should_shutdown() {
+                    break;
                 }
             }
             Ok(())
         });
         threads.push(read_thread);
 
+        // Sending data to TcpStream
         let write_thread = thread::spawn(move || -> Result<()> {
-            // Sending data to TcpStream
             let stream = &mut stream_write;
             let stdout_tx = stdout_tx_c;
             let interface = interface_write;
@@ -136,63 +85,7 @@ fn main() -> Result<()> {
                     let username = interface.get_username();
                     let command = if inp.starts_with(COMMAND_PREFIX) {
                         argv = inp[2..].split_whitespace().collect();
-                        match &inp[1..2] {
-                            "q" => {
-                                let quitmsg = if argv.is_empty() {
-                                    "Quitting ..."
-                                } else {
-                                    &inp[2..]
-                                };
-                                interface.set_shutdown_flag();
-                                Command::Quit(quitmsg)
-                            }
-
-                            "j" => {
-                                // TODO: check whether join is successful
-                                for channel in &argv {
-                                    interface.push_channel(Channel::new(
-                                        channel,
-                                        &interface.get_server(),
-                                    ));
-                                }
-                                interface.store_active_channel(interface.channels_len() - 1);
-                                interface.toggle_refresh_buffers_flag();
-                                Command::Join(&argv)
-                            }
-
-                            "p" => {
-                                for channel in &argv {
-                                    if let Some(index) = interface.get_channel_pos(*channel) {
-                                        interface.remove_channel(index);
-                                        if interface.is_active(*channel) {
-                                            interface
-                                                .store_active_channel(interface.channels_len() - 1);
-                                        }
-                                        interface.toggle_refresh_buffers_flag();
-                                    }
-                                }
-                                Command::Part(&argv)
-                            }
-
-                            "c" => {
-                                if let Ok(target) = &inp[2..].trim().parse::<usize>() {
-                                    if interface.get_channel(*target).is_some() {
-                                        interface.store_active_channel(*target);
-                                        interface.toggle_refresh_buffers_flag();
-                                    }
-                                } else {
-                                    let mut printable = String::from("Buffers: ");
-                                    for i in 0..interface.channels_len() {
-                                        let name = interface.get_channel(i).unwrap();
-                                        printable.push_str(&format!("[{}]{} ", i, name));
-                                    }
-                                    stdout_tx.send(printable).expect("Could not send to stdout");
-                                }
-                                Command::Unknown
-                            }
-
-                            &_ => Command::Unknown,
-                        }
+                        parse_user_cmd(&inp, &interface, &stdout_tx, &argv)
                     } else {
                         Command::Privmsg(&username, &active_channel, &inp)
                     };
@@ -209,14 +102,12 @@ fn main() -> Result<()> {
         });
         threads.push(write_thread);
 
+        // Main thread -- handling stdout & UI
         let (output_endy, output_endx) = output_win.get_max_yx();
         let output_last_line = output_endy - 2;
-        output_win.mv(0, 0);
-
-        // Main thread -- handling stdout
-        input_win.mv(1, 0);
-        buffers_win.touch();
         let mut inp = String::new();
+        interface.toggle_refresh_buffers_flag();
+
         loop {
             if interface.should_shutdown() {
                 break;
@@ -225,57 +116,16 @@ fn main() -> Result<()> {
             refresh_buffers(&buffers_win, &interface);
 
             if let Ok(printable) = stdout_rx.try_recv() {
-                let output_endx = output_endx as usize;
-                let words = printable.split_whitespace();
-                let mut line = String::with_capacity(output_endx);
-                output_win.refresh();
-                for word in words {
-                    if word.len() + line.len() < output_endx {
-                        line.push_str(word);
-                        line.push(' ');
-                    } else {
-                        line.insert(line.len() - 1, '\n');
-                        shift_lines_up(&output_win, output_last_line);
-                        output_win.printw(&line);
-                        output_win.refresh();
-                        line = String::with_capacity(output_endx);
-                        line.push_str(word);
-                        line.push(' ');
-                    }
+                let max_len = output_endx as usize;
+                let lines = split_line(&printable, max_len);
+                for line in lines {
+                    shift_lines_up(&output_win, output_last_line);
+                    output_win.printw(&line);
+                    output_win.refresh();
                 }
-                line.insert(line.len() - 1, '\n');
-                shift_lines_up(&output_win, output_last_line);
-                output_win.printw(&line);
-                output_win.refresh();
             }
-            let (y, x) = input_win.get_cur_yx();
-            match term.getch() {
-                Some(Input::KeyBackspace) => {
-                    input_win.mv(y, x - 1);
-                    inp.pop();
-                    input_win.delch();
-                }
-                Some(Input::KeyLeft) => {
-                    input_win.mv(y, x - 1);
-                }
-                Some(Input::KeyRight) => {
-                    if x < inp.len() as i32 {
-                        input_win.mv(y, x + 1);
-                    }
-                }
-                Some(Input::Character(c)) if c == '\n' => {
-                    write_tx.send(inp).expect("Could not send to WRITE");
-                    input_win.deleteln();
-                    input_win.mv(1, 0);
-                    inp = String::default();
-                }
-                Some(Input::Character(c)) => {
-                    inp.push(c);
-                    input_win.insch(c);
-                    input_win.mv(y, x + 1);
-                }
-                Some(_) | None => (),
-            }
+
+            inp = handle_input(inp, &input_win, &term, &write_tx);
             if input_win.is_touched() {
                 input_win.refresh();
             }
@@ -284,6 +134,7 @@ fn main() -> Result<()> {
         for thread in threads {
             thread.join().unwrap()?;
         }
+
         output_win.printw("Shutting down. Bye!");
         stream.shutdown(Shutdown::Both)?;
         endwin();
