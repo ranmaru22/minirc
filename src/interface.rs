@@ -9,6 +9,7 @@ pub struct Interface {
     conn: Mutex<Connection>,
     active_channel: AtomicUsize,
     shutdown_flag: AtomicBool,
+    refresh_buffers_flag: AtomicBool,
 }
 
 impl Interface {
@@ -18,12 +19,14 @@ impl Interface {
         let channels = Mutex::new(root);
         let active_channel = AtomicUsize::new(0);
         let shutdown_flag = AtomicBool::new(false);
+        let refresh_buffers_flag = AtomicBool::new(false);
 
         Self {
             channels,
             conn,
             active_channel,
             shutdown_flag,
+            refresh_buffers_flag,
         }
     }
 
@@ -108,6 +111,17 @@ impl Interface {
     /// Returns whether the shutdown flag is set
     pub fn should_shutdown(&self) -> bool {
         self.shutdown_flag.load(Ordering::Relaxed)
+    }
+
+    /// Toggles the refresh buffers flag
+    pub fn toggle_refresh_buffers_flag(&self) {
+        let arg = self.should_refresh_buffers();
+        self.refresh_buffers_flag.store(!arg, Ordering::Relaxed);
+    }
+
+    /// Returns whether the refresh buffers flag is set
+    pub fn should_refresh_buffers(&self) -> bool {
+        self.refresh_buffers_flag.load(Ordering::Relaxed)
     }
 
     /// Returns the stored username

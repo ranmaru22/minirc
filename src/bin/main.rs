@@ -19,12 +19,19 @@ fn main() -> Result<()> {
 
     if let Ok(ref mut stream) = TcpStream::connect(&conn.address) {
         let term = initscr();
-        cbreak();
+        cbreak(); // DEBUG ONLY
         noecho();
-        term.timeout(0);
+        term.timeout(5);
         term.clear();
         term.refresh();
         term.keypad(true);
+
+        if has_colors() {
+            use_default_colors();
+            start_color();
+            init_pair(1, COLOR_RED, -1);
+            init_pair(0, -1, -1);
+        }
 
         let (term_rows, term_cols) = term.get_max_yx();
         let buffers_win = term.subwin(1, term_cols, 0, 0).unwrap();
@@ -45,7 +52,6 @@ fn main() -> Result<()> {
         let interface = Arc::new(Interface::new(conn));
         let interface_read = interface.clone();
         let interface_write = interface.clone();
-        let interface_stdin = interface.clone();
 
         // Stream clones
         let stream_read = stream.try_clone().expect("Error cloning stream");
@@ -95,6 +101,7 @@ fn main() -> Result<()> {
                             let mut c = Channel::new(log_target, &server);
                             c.write(&printable)?;
                             interface.push_channel(c);
+                            interface.toggle_refresh_buffers_flag();
                         }
                     }
 
@@ -149,6 +156,7 @@ fn main() -> Result<()> {
                                     ));
                                 }
                                 interface.store_active_channel(interface.channels_len() - 1);
+                                interface.toggle_refresh_buffers_flag();
                                 Command::Join(&argv)
                             }
 
@@ -160,6 +168,7 @@ fn main() -> Result<()> {
                                             interface
                                                 .store_active_channel(interface.channels_len() - 1);
                                         }
+                                        interface.toggle_refresh_buffers_flag();
                                     }
                                 }
                                 Command::Part(&argv)
@@ -169,6 +178,7 @@ fn main() -> Result<()> {
                                 if let Ok(target) = &inp[2..].trim().parse::<usize>() {
                                     if interface.get_channel(*target).is_some() {
                                         interface.store_active_channel(*target);
+                                        interface.toggle_refresh_buffers_flag();
                                     }
                                 } else {
                                     let mut printable = String::from("Buffers: ");
@@ -199,41 +209,27 @@ fn main() -> Result<()> {
         });
         threads.push(write_thread);
 
-        let stdin_thread = thread::spawn(move || -> Result<()> {
-            // Reading input vom stdin
-            let interface = interface_stdin;
-
-            loop {
-                if interface.should_shutdown() {
-                    break;
-                }
-            }
-            Ok(())
-        });
-        threads.push(stdin_thread);
-
         let (output_endy, output_endx) = output_win.get_max_yx();
         let output_last_line = output_endy - 2;
         output_win.mv(0, 0);
-        // DEBUG: remove this!
-        for _ in 1..15 {
-            output_win.printw("Foobar\n");
-        }
-        // Main thread -- handling stdout
 
+        // Main thread -- handling stdout
         input_win.mv(1, 0);
+        buffers_win.touch();
         let mut inp = String::new();
         loop {
             if interface.should_shutdown() {
                 break;
             }
 
+            refresh_buffers(&buffers_win, &interface);
+
             if let Ok(printable) = stdout_rx.try_recv() {
                 let output_endx = output_endx as usize;
-                let mut words = printable.split_whitespace();
+                let words = printable.split_whitespace();
                 let mut line = String::with_capacity(output_endx);
                 output_win.refresh();
-                while let Some(word) = words.next() {
+                for word in words {
                     if word.len() + line.len() < output_endx {
                         line.push_str(word);
                         line.push(' ');
