@@ -113,10 +113,16 @@ impl Interface {
         self.shutdown_flag.load(Ordering::Relaxed)
     }
 
-    /// Toggles the refresh buffers flag
-    pub fn toggle_refresh_buffers_flag(&self) {
+    /// Sets the refresh buffers flag
+    pub fn set_refresh_buffers_flag(&self) {
         let arg = self.should_refresh_buffers();
-        self.refresh_buffers_flag.store(!arg, Ordering::Relaxed);
+        self.refresh_buffers_flag.store(true, Ordering::Relaxed);
+    }
+
+    /// Unsets the refresh buffers flag
+    pub fn unset_refresh_buffers_flag(&self) {
+        let arg = self.should_refresh_buffers();
+        self.refresh_buffers_flag.store(false, Ordering::Relaxed);
     }
 
     /// Returns whether the refresh buffers flag is set
