@@ -125,7 +125,14 @@ fn main() -> Result<()> {
                 }
             }
 
-            inp = handle_input(inp, &input_win, &term, &write_tx);
+            if handle_input(&mut inp, &input_win, &term) {
+                inp.pop();
+                write_tx.send(inp).expect("Could not send to Write");
+                input_win.deleteln();
+                input_win.mv(0, 0);
+                inp = String::new();
+            }
+
             if input_win.is_touched() {
                 input_win.refresh();
             }

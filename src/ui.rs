@@ -1,6 +1,5 @@
 use crate::interface::Interface;
 use pancurses::*;
-use std::sync::mpsc::Sender;
 
 #[macro_export]
 macro_rules! refresh_all {
@@ -65,7 +64,7 @@ pub fn split_line(s: &str, max_len: usize) -> Vec<String> {
     lines
 }
 
-pub fn handle_input(mut inp: String, w: &Window, term: &Window, pipe: &Sender<String>) -> String {
+pub fn handle_input(inp: &mut String, w: &Window, term: &Window) -> bool {
     let (y, x) = w.get_cur_yx();
     match term.getch() {
         Some(Input::KeyResize) => {
@@ -99,10 +98,7 @@ pub fn handle_input(mut inp: String, w: &Window, term: &Window, pipe: &Sender<St
             w.chgat(1, A_REVERSE, 0);
         }
         Some(Input::Character(c)) if c == '\n' => {
-            pipe.send(inp).expect("Could not send to WRITE");
-            w.deleteln();
-            w.mv(1, 0);
-            inp = String::default();
+            return true;
         }
         Some(Input::Character(c)) => {
             inp.push(c);
@@ -113,7 +109,8 @@ pub fn handle_input(mut inp: String, w: &Window, term: &Window, pipe: &Sender<St
         }
         Some(_) | None => (),
     }
-    inp
+
+    false
 }
 
 pub fn shift_lines_up(w: &Window, last_line: i32) {
