@@ -115,13 +115,11 @@ impl Interface {
 
     /// Sets the refresh buffers flag
     pub fn set_refresh_buffers_flag(&self) {
-        let arg = self.should_refresh_buffers();
         self.refresh_buffers_flag.store(true, Ordering::Relaxed);
     }
 
     /// Unsets the refresh buffers flag
     pub fn unset_refresh_buffers_flag(&self) {
-        let arg = self.should_refresh_buffers();
         self.refresh_buffers_flag.store(false, Ordering::Relaxed);
     }
 
