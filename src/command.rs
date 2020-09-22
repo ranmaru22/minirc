@@ -77,6 +77,12 @@ impl Command {
 
 impl From<String> for Command {
     fn from(inp: String) -> Self {
+        Self::from(inp.as_ref())
+    }
+}
+
+impl From<&str> for Command {
+    fn from(inp: &str) -> Self {
         let mut split = inp.split_whitespace();
 
         let sender = match split.next() {
