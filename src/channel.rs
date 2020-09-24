@@ -4,7 +4,7 @@ const MAX_HIST: usize = 1000;
 use std::collections::VecDeque;
 use std::env;
 use std::fs::{create_dir_all, File, OpenOptions};
-use std::io::{prelude::*, BufReader, Result, Write};
+use std::io::{prelude::*, BufReader, Result, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -36,17 +36,26 @@ impl Channel {
         }
 
         let mut buffer = VecDeque::with_capacity(MAX_HIST);
-        let mut reader = BufReader::new(File::open(&fp).expect("Error opening buffer file"));
-        let mut lines = String::new();
-        reader
-            .read_to_string(&mut lines)
-            .expect("Error reading buffer file");
-        for (i, line) in lines.rsplit("\r\n").enumerate() {
+        let mut file = File::open(&fp).expect("Error opening buffer file");
+        let mut file_buf = String::new();
+        let file_size = file.metadata().unwrap().len();
+        let chunk_size = 512 * MAX_HIST as u64;
+        let start_pos = if file_size < chunk_size {
+            0
+        } else {
+            file_size - chunk_size
+        };
+        file.seek(SeekFrom::Start(start_pos)).unwrap();
+        file.take(chunk_size).read_to_string(&mut file_buf).unwrap();
+
+        for (i, line) in file_buf.lines().rev().enumerate() {
             if i > MAX_HIST {
                 break;
             }
-            buffer.push_back(format!("{}\r\n", line));
+            buffer.push_front(format!("{}\r\n", line));
         }
+        // Remove oldest line as it's likely cut off in the middle.
+        buffer.pop_front();
 
         let fp = fp.canonicalize().expect("Error resolving file path");
         Self {
