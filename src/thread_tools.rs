@@ -28,7 +28,7 @@ pub fn parse_incoming_cmd(cmd: Command, itf: &Interface) -> Result<Option<String
 
         _ => {
             if let Some(output) = cmd.to_printable() {
-                itf.write_to_chan(0, &output)?;
+                // itf.write_to_chan(0, &output)?;
                 if itf.get_active_channel_pos() == 0 {
                     return Ok(Some(output));
                 }
@@ -47,18 +47,23 @@ pub fn parse_user_input(inp: &str, itf: &Interface) -> Command {
 
         "j" => {
             // TODO: check whether join is successful
-            let mut channels = Vec::with_capacity(inp.len());
-            for channel in inp.split_whitespace() {
-                itf.push_channel(Channel::new(&channel, &itf.get_server()));
-                channels.push(String::from(channel));
+            let mut channels = Vec::with_capacity(4);
+            for (i, channel) in inp.split_whitespace().enumerate() {
+                if i > 0 && itf.get_channel_pos(&channel).is_none() {
+                    itf.push_channel(Channel::new(&channel, &itf.get_server()));
+                    channels.push(String::from(channel));
+                }
             }
-            itf.store_active_channel(itf.channels_len() - 1);
-            itf.set_refresh_buffers_flag();
-            Command::Join(channels)
+            if !channels.is_empty() {
+                itf.store_active_channel(itf.channels_len() - 1);
+                itf.set_refresh_buffers_flag();
+                return Command::Join(channels);
+            }
+            Command::Unknown
         }
 
         "p" => {
-            let mut channels = Vec::with_capacity(inp.len());
+            let mut channels = Vec::with_capacity(4);
             for channel in inp.split_whitespace() {
                 if let Some(index) = itf.get_channel_pos(&channel) {
                     itf.remove_channel(index);
@@ -68,8 +73,12 @@ pub fn parse_user_input(inp: &str, itf: &Interface) -> Command {
                     }
                 }
             }
-            itf.set_refresh_buffers_flag();
-            Command::Part(channels)
+            if channels.len() > 1 {
+                itf.set_refresh_buffers_flag();
+                channels.remove(0);
+                return Command::Part(channels);
+            }
+            Command::Unknown
         }
 
         "c" => {
@@ -77,6 +86,7 @@ pub fn parse_user_input(inp: &str, itf: &Interface) -> Command {
                 if itf.get_channel(*target).is_some() {
                     itf.store_active_channel(*target);
                     itf.set_refresh_buffers_flag();
+                    return Command::Internal(SwitchBuffer(*target));
                 }
             }
             Command::Internal(PrintBuffers)

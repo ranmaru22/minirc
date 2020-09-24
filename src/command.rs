@@ -21,40 +21,10 @@ pub enum Command {
 #[derive(Debug, PartialEq)]
 pub enum UiCommand {
     PrintBuffers,
+    SwitchBuffer(usize),
 }
 
 impl Command {
-    /// Returns a sendable string from a command type.
-    pub fn to_string(&self) -> Option<String> {
-        match self {
-            Self::Privmsg(_, target, msg) => Some(format!("PRIVMSG {} :{}\r\n", target, msg)),
-            Self::Notice(_, target, msg) => Some(format!("NOTICE {} :{}\r\n", target, msg)),
-            Self::Ping(payload) => Some(format!("PING {}\r\n", payload)),
-            Self::Pong(payload) => Some(format!("PONG {}\r\n", payload)),
-            Self::Pass(passwd) => Some(format!("PASS {}\r\n", passwd)),
-            Self::User(username, realname) => {
-                Some(format!("USER {} * * :{}\r\n", username, realname))
-            }
-            Self::Nick(nickname) => Some(format!("NICK {}\r\n", nickname)),
-            Self::Join(channels) => {
-                let channels = channels.join(",");
-                Some(format!("JOIN {}\r\n", channels))
-            }
-            Self::Part(channels) => {
-                let channels = channels.join(",");
-                Some(format!("PART {}\r\n", channels))
-            }
-            Self::Quit(quitmsg) => Some(format!("QUIT :{}\r\n", quitmsg)),
-            Self::Internal(_) | Self::Unknown => None,
-        }
-    }
-
-    /// Returns a raw sendable string from a command type.
-    /// Returns an empty string on unknown commands.
-    pub fn to_unwrapped_string(&self) -> String {
-        self.to_string().unwrap_or_default()
-    }
-
     /// Used to write to stdout or logs.
     /// Returns a printable string from a command type.
     pub fn to_printable(&self) -> Option<String> {
@@ -67,11 +37,35 @@ impl Command {
 
     /// Sends a sendable command type to a stream.
     pub fn send(&self, stream: &mut TcpStream) -> Result<()> {
-        if let Some(cmd) = self.to_string() {
-            let bytes = cmd.into_bytes();
+        let bytes = self.to_string().into_bytes();
+        if !bytes.is_empty() {
             stream.write_all(&bytes)?;
         }
         Ok(())
+    }
+}
+
+impl ToString for Command {
+    fn to_string(&self) -> String {
+        match self {
+            Self::Privmsg(_, target, msg) => format!("PRIVMSG {} :{}\r\n", target, msg),
+            Self::Notice(_, target, msg) => format!("NOTICE {} :{}\r\n", target, msg),
+            Self::Ping(payload) => format!("PING {}\r\n", payload),
+            Self::Pong(payload) => format!("PONG {}\r\n", payload),
+            Self::Pass(passwd) => format!("PASS {}\r\n", passwd),
+            Self::User(username, realname) => format!("USER {} * * :{}\r\n", username, realname),
+            Self::Nick(nickname) => format!("NICK {}\r\n", nickname),
+            Self::Join(channels) => {
+                let channels = channels.join(",");
+                format!("JOIN {}\r\n", channels)
+            }
+            Self::Part(channels) => {
+                let channels = channels.join(",");
+                format!("PART {}\r\n", channels)
+            }
+            Self::Quit(quitmsg) => format!("QUIT :{}\r\n", quitmsg),
+            Self::Internal(_) | Self::Unknown => String::default(),
+        }
     }
 }
 

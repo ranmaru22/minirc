@@ -83,11 +83,25 @@ impl Interface {
         channels.remove(pos);
     }
 
-    /// Logs a message s to the channel as position pos
+    /// Logs a message s to the channel as position pos and to the corresponding
+    /// buffer it one exists.
     pub fn write_to_chan(&self, pos: usize, s: &str) -> Result<()> {
         let mut channels = self.channels.lock().unwrap();
-        if let Some(ref mut chan) = channels.get_mut(pos) {
+        if let Some(chan) = channels.get_mut(pos) {
             chan.write(s)?;
+        }
+        Ok(())
+    }
+
+    pub fn apply_to_buffer<F>(&self, pos: usize, mut f: F) -> Result<()>
+    where
+        F: FnMut(&'_ str) -> Result<()>,
+    {
+        let channels = self.channels.lock().unwrap();
+        if let Some(channel) = channels.get(pos) {
+            for line in channel.get_buffer() {
+                f(line)?;
+            }
         }
         Ok(())
     }

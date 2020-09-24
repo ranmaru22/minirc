@@ -29,19 +29,16 @@ pub fn split_line(s: &str, max_len: usize) -> Vec<String> {
     lines
 }
 
-pub fn handle_input(inp: &mut String, stdin: &mut AsyncReader) -> Result<bool> {
+pub fn handle_input(inp: &mut String, stdin: &mut AsyncReader) -> Result<()> {
     let mut keys = stdin.keys();
-    loop {
-        if let Some(Ok(key)) = keys.next() {
-            match key {
-                Key::Char(c) if c == '\n' => break,
-                Key::Char(c) => inp.push(c),
-                Key::Backspace => {
-                    inp.pop();
-                }
-                _ => (),
+    if let Some(Ok(key)) = keys.next() {
+        match key {
+            Key::Char(c) => inp.push(c),
+            Key::Backspace => {
+                inp.pop();
             }
+            _ => (),
         }
     }
-    Ok(true)
+    Ok(())
 }
