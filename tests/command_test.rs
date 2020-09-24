@@ -10,7 +10,7 @@ pub fn parsing_privmsg_works() {
     );
     let as_sent = String::from("PRIVMSG ##rantestfoobazinga1337 :Foo! :D\r\n");
     assert_eq!(Command::from(test_str), expected);
-    assert_eq!(expected.to_string(), Some(as_sent));
+    assert_eq!(expected.to_string(), as_sent);
 }
 
 #[test]
@@ -23,7 +23,7 @@ pub fn parsing_notice_works() {
     );
     let as_sent = String::from("NOTICE * :*** Looking up your hostname...\r\n");
     assert_eq!(Command::from(test_str), expected);
-    assert_eq!(expected.to_string(), Some(as_sent));
+    assert_eq!(expected.to_string(), as_sent);
 }
 
 #[test]
@@ -32,7 +32,7 @@ pub fn parsing_ping_works() {
     let expected = Command::Ping(":pong me back".to_owned());
     let as_sent = String::from("PING :pong me back\r\n");
     assert_eq!(Command::from(test_str), expected);
-    assert_eq!(expected.to_string(), Some(as_sent));
+    assert_eq!(expected.to_string(), as_sent);
 }
 
 #[test]
@@ -41,7 +41,7 @@ pub fn parsing_pong_works() {
     let expected = Command::Pong(":pong pong pong".to_owned());
     let as_sent = String::from("PONG :pong pong pong\r\n");
     assert_eq!(Command::from(test_str), expected);
-    assert_eq!(expected.to_string(), Some(as_sent));
+    assert_eq!(expected.to_string(), as_sent);
 }
 
 #[test]
@@ -54,8 +54,8 @@ pub fn sending_join_and_part_works() {
     ]);
     let expected = String::from("JOIN ##foo\r\n");
     let expected_mult = String::from("JOIN ##foo,#bar,##baz\r\n");
-    assert_eq!(single.to_string(), Some(expected));
-    assert_eq!(multiple.to_string(), Some(expected_mult));
+    assert_eq!(single.to_string(), expected);
+    assert_eq!(multiple.to_string(), expected_mult);
 }
 
 #[test]
