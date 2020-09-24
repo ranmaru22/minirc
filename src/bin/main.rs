@@ -3,25 +3,21 @@ const COMMAND_PREFIX: char = ':';
 
 use std::io::{prelude::*, stdout, BufReader, Result, Write};
 use std::net::{Shutdown, TcpStream};
-use std::str;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::Arc;
-use std::thread::{self, JoinHandle};
+use std::{str, thread};
 
+use minirc::command::{send_auth, Command, UiCommand::*};
+use minirc::interface::Interface;
+use minirc::{argparse, thread_tools::*, ui::*};
 use termion::raw::IntoRawMode;
-use termion::{async_stdin, clear, color, cursor};
-
-use libminirc::argparse;
-use libminirc::command::{send_auth, Command, UiCommand::*};
-use libminirc::interface::Interface;
-use libminirc::thread_tools::*;
-use libminirc::ui::*;
+use termion::{clear, color, cursor};
 
 fn main() -> Result<()> {
     let conn = argparse::setup()?;
 
     if let Ok(ref mut stream) = TcpStream::connect(&conn.address) {
-        let mut stdin = async_stdin();
+        let mut stdin = termion::async_stdin();
         let mut stdout = stdout().into_raw_mode()?;
         write!(
             stdout,
