@@ -4,7 +4,7 @@ const MAX_HIST: usize = 1000;
 use std::collections::VecDeque;
 use std::env;
 use std::fs::{create_dir_all, File, OpenOptions};
-use std::io::{prelude::*, BufReader, Result, SeekFrom, Write};
+use std::io::{prelude::*, Result, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -54,6 +54,7 @@ impl Channel {
             }
             buffer.push_front(format!("{}\r\n", line));
         }
+
         // Remove oldest line as it's likely cut off in the middle.
         buffer.pop_front();
 

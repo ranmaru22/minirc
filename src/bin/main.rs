@@ -3,7 +3,7 @@ const COMMAND_PREFIX: char = ':';
 
 use std::io::{prelude::*, stdout, BufReader, Result, Write};
 use std::net::{Shutdown, TcpStream};
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::{str, thread};
 
@@ -11,7 +11,7 @@ use minirc::command::{send_auth, Command, UiCommand::*};
 use minirc::interface::Interface;
 use minirc::{argparse, thread_tools::*, ui::*};
 use termion::raw::IntoRawMode;
-use termion::{clear, color, cursor};
+use termion::{clear, cursor};
 
 fn main() -> Result<()> {
     let conn = argparse::setup()?;
@@ -21,7 +21,7 @@ fn main() -> Result<()> {
         let mut stdout = stdout().into_raw_mode()?;
         write!(
             stdout,
-            "{}{}Conntecting to {}...\r",
+            "{}{}Connecting to {}...\r",
             termion::clear::All,
             termion::cursor::Goto(1, 1),
             &conn.server
@@ -165,7 +165,7 @@ fn main() -> Result<()> {
             stdout.flush()?;
         }
 
-        write!(stdout, "Shutting down. Bye!")?;
+        write!(stdout, "\r\nShutting down. Bye!")?;
         stdout.flush()?;
         stream.shutdown(Shutdown::Both)?;
         read_thread.join().unwrap()?;
