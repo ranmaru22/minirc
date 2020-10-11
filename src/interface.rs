@@ -15,18 +15,13 @@ pub struct Interface {
 impl Interface {
     pub fn new(conn: Connection) -> Self {
         let root = vec![Channel::new(&conn.server, &conn.server)];
-        let conn = Mutex::new(conn);
-        let channels = Mutex::new(root);
-        let active_channel = AtomicUsize::new(0);
-        let shutdown_flag = AtomicBool::new(false);
-        let refresh_buffers_flag = AtomicBool::new(false);
 
         Self {
-            channels,
-            conn,
-            active_channel,
-            shutdown_flag,
-            refresh_buffers_flag,
+            channels: Mutex::new(root),
+            conn: Mutex::new(conn),
+            active_channel: AtomicUsize::new(0),
+            shutdown_flag: AtomicBool::new(false),
+            refresh_buffers_flag: AtomicBool::new(false),
         }
     }
 
