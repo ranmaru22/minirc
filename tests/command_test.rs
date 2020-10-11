@@ -1,4 +1,4 @@
-use libminirc::command::*;
+use minirc::command::*;
 
 #[test]
 pub fn parsing_privmsg_works() {
